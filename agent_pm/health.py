@@ -6,23 +6,22 @@ import logging
 from typing import Any
 
 import yaml
-from openai import AsyncOpenAI
 
+from agent_pm.openai_utils import get_async_openai_client
 from agent_pm.settings import settings
 
 logger = logging.getLogger(__name__)
 
 
 async def check_openai() -> dict[str, Any]:
-    """Verify OpenAI API connectivity."""
-    api_key = settings.openai_api_key
-    if not api_key:
+    """Verify OpenAI API connectivity, reflecting dry-run mode when no key is configured."""
+    client = get_async_openai_client(timeout=5.0)
+    if client is None:
         detail = "OPENAI_API_KEY not configured"
         status = "warn" if settings.dry_run else "error"
         return {"status": status, "service": "openai", "detail": detail}
 
     try:
-        client = AsyncOpenAI(api_key=api_key, timeout=5.0)
         await client.models.list()
         return {"status": "ok", "service": "openai"}
     except Exception as exc:

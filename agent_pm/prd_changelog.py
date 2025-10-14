@@ -4,15 +4,14 @@ from __future__ import annotations
 
 import logging
 
-from openai import AsyncOpenAI
-
+from agent_pm.openai_utils import get_async_openai_client
 from agent_pm.settings import settings
 
 logger = logging.getLogger(__name__)
 
 
 async def generate_changelog(old_prd: str, new_prd: str, diff_summary: dict) -> str:
-    """Generate AI-powered changelog describing changes between PRD versions."""
+    """Generate AI-powered changelog, or return a summary stub when running in dry-run mode."""
     prompt = f"""You are a technical writer. Given two versions of a PRD and a diff summary, generate a concise changelog.
 
 Old PRD:
@@ -33,13 +32,11 @@ Write a bullet-point changelog highlighting:
 4. Why these changes matter
 
 Format as markdown bullet points. Keep it under 200 words."""
-    api_key = settings.openai_api_key
-    if not api_key:
+    client = get_async_openai_client()
+    if client is None:
         if settings.dry_run:
             return f"**Changes:** {diff_summary['additions']} additions, {diff_summary['deletions']} deletions"
         raise RuntimeError("OPENAI_API_KEY is required to generate changelog")
-
-    client = AsyncOpenAI(api_key=api_key)
     try:
         response = await client.chat.completions.create(
             model="gpt-4o-mini",

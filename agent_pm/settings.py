@@ -14,7 +14,11 @@ class Settings(BaseSettings):
         populate_by_name=True,
     )
 
-    openai_api_key: str | None = Field(None, alias="OPENAI_API_KEY")
+    openai_api_key: str | None = Field(
+        None,
+        alias="OPENAI_API_KEY",
+        description="Optional when DRY_RUN=true; required for live OpenAI access.",
+    )
     github_token: str | None = Field(None, alias="GITHUB_TOKEN")
     jira_base_url: str | None = Field(None, alias="JIRA_BASE_URL")
     jira_api_token: str | None = Field(None, alias="JIRA_API_TOKEN")

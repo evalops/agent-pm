@@ -5,9 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 
-from openai import AsyncOpenAI
-
-from agent_pm.settings import settings
+from agent_pm.openai_utils import get_async_openai_client
 
 logger = logging.getLogger(__name__)
 
@@ -19,15 +17,11 @@ def _stub_embedding(text: str, size: int = 1536) -> list[float]:
 
 
 async def generate_embedding(text: str, model: str = "text-embedding-3-small") -> list[float]:
-    """Generate embedding vector using OpenAI API."""
-    api_key = settings.openai_api_key
-    if not api_key:
-        if settings.dry_run:
-            logger.info("Returning stub embedding in dry-run mode")
-            return _stub_embedding(text)
-        raise RuntimeError("OPENAI_API_KEY is required for embeddings")
-
-    client = AsyncOpenAI(api_key=api_key)
+    """Generate embedding vector using OpenAI API or a deterministic stub in dry-run mode."""
+    client = get_async_openai_client()
+    if client is None:
+        logger.info("Returning stub embedding in dry-run mode")
+        return _stub_embedding(text)
     try:
         response = await client.embeddings.create(input=text, model=model)
         return response.data[0].embedding
