@@ -1,0 +1,35 @@
+name: idea_to_prd_to_tickets
+steps:
+  - id: draft_prd
+    run: model
+    input: |
+      Use the PRD template. Ask max 2 blocking Qs only if necessary.
+  - id: create_epic
+    run: create_jira_issue
+    with:
+      project_key: EV
+      summary: "{{title}} Epic"
+      description: "{{prd_md}}"
+      issue_type: Epic
+  - id: create_stories
+    foreach: "{{ticket_summaries}}"
+    run: create_jira_issue
+    with:
+      project_key: EV
+      summary: "{{item}}"
+      description: "Auto from PRD"
+  - id: schedule_review
+    when: approved
+    run: schedule_review_event
+    with:
+      summary: "{{title}} stakeholder review"
+      description: "{{prd_md}}"
+      start_time_iso: "{{review_time_iso}}"
+      duration_minutes: 30
+      attendees: "{{stakeholders}}"
+  - id: announce
+    when: approved
+    run: publish_status_digest
+    with:
+      channel: "#eng"
+      body_md: "{{digest}}"

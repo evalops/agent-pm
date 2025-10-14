@@ -1,0 +1,72 @@
+- name: create_jira_issue
+  summary: Create a single Jira issue
+  params:
+    type: object
+    properties:
+      project_key:
+        type: string
+      summary:
+        type: string
+      description:
+        type: string
+      issue_type:
+        type: string
+        default: Story
+      labels:
+        type: array
+        items:
+          type: string
+    required:
+      - project_key
+      - summary
+      - description
+  approvals: required
+- name: github_project_note
+  summary: Add a draft note to a GitHub Project
+  params:
+    type: object
+    properties:
+      project_id:
+        type: string
+      note:
+        type: string
+    required:
+      - project_id
+      - note
+  approvals: auto
+- name: publish_status_digest
+  summary: Post status to Slack channel
+  params:
+    type: object
+    properties:
+      channel:
+        type: string
+      body_md:
+        type: string
+    required:
+      - body_md
+  approvals: required
+- name: schedule_review_event
+  summary: Schedule a stakeholder review on the team calendar
+  params:
+    type: object
+    properties:
+      summary:
+        type: string
+      description:
+        type: string
+      start_time_iso:
+        type: string
+        description: ISO 8601 timestamp for event start
+      duration_minutes:
+        type: integer
+        default: 30
+      attendees:
+        type: array
+        items:
+          type: string
+    required:
+      - summary
+      - description
+      - start_time_iso
+  approvals: required
