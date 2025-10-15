@@ -9,12 +9,12 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-import yaml
 from fastapi import FastAPI
 
 from ..metrics import record_plugin_hook_failure, record_plugin_hook_invocation
 from ..settings import settings
 from .base import PluginBase, PluginMetadata
+from .schema import dump_plugin_config, load_plugin_config, PluginConfigModel
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +27,7 @@ class PluginRegistry:
         self._metadata: dict[str, PluginMetadata] = {}
         self._routers: dict[str, tuple[Any, str]] = {}
         self._mounted_plugins: set[str] = set()
+        self._hook_stats: dict[str, dict[str, dict[str, int]]] = {}
         self._app: FastAPI | None = None
         self._load()
 
@@ -86,21 +87,15 @@ class PluginRegistry:
             self._plugins.pop(name, None)
             self._metadata.pop(name, None)
             self._routers.pop(name, None)
+            self._hook_stats.pop(name, None)
 
     def _read_config(self) -> list[dict[str, Any]]:
         if not self.path.exists():
             return []
-        data = yaml.safe_load(self.path.read_text(encoding="utf-8")) or []
-        if isinstance(data, dict):
-            data = [dict({"name": key}, **value) for key, value in data.items()]
-        if not isinstance(data, list):
-            raise ValueError("plugins.yaml must define a list of plugins")
-        return data
+        return load_plugin_config(self.path)
 
     def _write_config(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self.path.open("w", encoding="utf-8") as fh:
-            yaml.safe_dump(self._entries, fh, sort_keys=False)
+        dump_plugin_config(self.path, self._entries)
 
     def _instantiate(self, entry: dict[str, Any], config: dict[str, Any]) -> PluginBase:
         module_ref = entry.get("module")
@@ -148,12 +143,40 @@ class PluginRegistry:
         self._load()
         return self.metadata_for(name)
 
+    def update_config(self, name: str, config: dict[str, Any]) -> dict[str, Any]:
+        entry = next((item for item in self._entries if item.get("name") == name), None)
+        if entry is None:
+            raise KeyError(f"Plugin {name} not found")
+        candidate = PluginConfigModel(
+            name=name,
+            module=entry["module"],
+            enabled=entry.get("enabled", True),
+            description=entry.get("description"),
+            hooks=entry.get("hooks"),
+            config=config,
+        )
+        entry["config"] = candidate.config or {}
+        self._write_config()
+        self._load()
+        return self.metadata_for(name)
+
     def metadata_for(self, name: str) -> dict[str, Any]:
         meta = self._metadata.get(name)
-        if not meta:
-            raise KeyError(f"Plugin {name} not registered")
-        data = meta.__dict__.copy()
+        if meta:
+            data = meta.__dict__.copy()
+        else:
+            entry = next((item for item in self._entries if item.get("name") == name), None)
+            if entry is None:
+                raise KeyError(f"Plugin {name} not registered")
+            data = {
+                "name": name,
+                "description": entry.get("description", ""),
+                "hooks": tuple(entry.get("hooks", [])),
+                "config": entry.get("config", {}),
+                "enabled": bool(entry.get("enabled", False)),
+            }
         data["active"] = self.is_enabled(name)
+        data["hook_stats"] = self._hook_stats.get(name, {})
         return data
 
     @property
@@ -170,7 +193,10 @@ class PluginRegistry:
             name = entry.get("name")
             if not name:
                 continue
-            metadata.append(self.metadata_for(name))
+            try:
+                metadata.append(self.metadata_for(name))
+            except KeyError:
+                continue
         return metadata
 
     def get(self, name: str) -> PluginBase | None:
@@ -189,13 +215,18 @@ class PluginRegistry:
             handler = getattr(plugin, hook, None)
             if not callable(handler):
                 continue
+            stats = self._hook_stats.setdefault(plugin.name, {})
+            hook_stats = stats.setdefault(hook, {"invocations": 0, "failures": 0})
             record_plugin_hook_invocation(plugin.name, hook)
             try:
                 result = handler(*args, **kwargs)
                 if asyncio.iscoroutine(result):
                     self._schedule(result)
+                hook_stats["invocations"] += 1
             except Exception as exc:  # pragma: no cover - defensive guard
                 record_plugin_hook_failure(plugin.name, hook)
+                hook_stats["invocations"] += 1
+                hook_stats["failures"] += 1
                 logger.exception("Plugin %s hook %s failed", plugin.name, hook, exc_info=exc)
 
     # ------------------------------------------------------------------

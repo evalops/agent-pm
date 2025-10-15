@@ -2,6 +2,7 @@ import asyncio
 import json
 from pathlib import Path
 
+import pytest
 import yaml
 
 from agent_pm.clients import jira_client, slack_client
@@ -128,6 +129,11 @@ def test_plugin_hook_metrics(monkeypatch, tmp_path):
     assert ("inv", "ticket_automation", "post_plan") in events
     assert ("fail", "ticket_automation", "post_plan") in events
 
+    metadata = registry.metadata_for("ticket_automation")
+    stats = metadata["hook_stats"]["post_plan"]
+    assert stats["failures"] == 1
+    assert stats["invocations"] == 1
+
 
 def test_slack_and_warehouse_plugins(monkeypatch, tmp_path):
     config_path = tmp_path / "plugins.yaml"
@@ -178,3 +184,14 @@ def test_slack_and_warehouse_plugins(monkeypatch, tmp_path):
     assert any(record["event"] == "ticket_export" for record in output_records)
     assert any(record["event"] == "alignment_event" for record in output_records)
     assert any(record["event"] == "feedback" for record in output_records)
+
+
+def test_invalid_plugin_configuration_raises(tmp_path):
+    config_path = tmp_path / "plugins.yaml"
+    config_path.write_text(
+        "- name: bad\n  module: invalid.module\n  enabled: true\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError):
+        PluginRegistry(config_path)

@@ -12,6 +12,7 @@ import streamlit as st
 from agent_pm.alignment_dashboard import (
     flatten_alignment_records,
     load_alignment_data,
+    load_plugin_metadata,
     followup_conversion,
     status_counts_by_idea,
     status_trend_by_day,
@@ -41,6 +42,8 @@ with st.sidebar:
     auto_refresh = st.checkbox("Auto-refresh", value=True)
     refresh_interval = st.number_input("Refresh interval (seconds)", min_value=15, max_value=300, value=60, step=15)
     refresh = st.button("Refresh now", use_container_width=True)
+    plugin_api = st.text_input("Plugins API", value=os.getenv("PLUGINS_API_URL", ""))
+    plugin_api_key = st.text_input("Plugins API Key", value=os.getenv("PLUGINS_API_KEY", ""), type="password")
 
 
 @st.cache_data(ttl=60)
@@ -70,6 +73,14 @@ df = pd.DataFrame.from_records(records)
 conversion = followup_conversion(events)
 
 st.caption(f"Data source: {source.upper()} (last {summary.get('total_events', len(events))} events)")
+
+
+@st.cache_data(ttl=60)
+def _get_plugin_registry(api_url: str, api_key: str | None):
+    return load_plugin_metadata(api_url=api_url or None, api_key=api_key or None)
+
+
+plugins, plugin_source = _get_plugin_registry(plugin_api.strip(), plugin_api_key.strip())
 
 status_counts = summary.get("status_counts", {})
 status_keys = sorted(status_counts.keys())
@@ -164,4 +175,38 @@ if summary.get("top_ideas"):
     top_ideas_df = pd.DataFrame(summary["top_ideas"], columns=["idea", "count"])
     st.bar_chart(top_ideas_df.set_index("idea"))
 
+st.subheader("Plugin Registry")
+if not plugins:
+    st.info("No plugin registry data available.")
+else:
+    plugin_rows = []
+    stats_rows = []
+    for item in plugins:
+        plugin_rows.append(
+            {
+                "name": item.get("name"),
+                "enabled": item.get("enabled"),
+                "active": item.get("active"),
+                "hooks": ", ".join(item.get("hooks", [])),
+            }
+        )
+        for hook, counts in (item.get("hook_stats") or {}).items():
+            stats_rows.append(
+                {
+                    "plugin": item.get("name"),
+                    "hook": hook,
+                    "invocations": counts.get("invocations", 0),
+                    "failures": counts.get("failures", 0),
+                }
+            )
+
+    st.dataframe(pd.DataFrame(plugin_rows), use_container_width=True)
+
+    if stats_rows:
+        stats_df = pd.DataFrame(stats_rows)
+        st.dataframe(stats_df, use_container_width=True)
+        pivot = stats_df.pivot_table(index="hook", columns="plugin", values="invocations", fill_value=0)
+        st.bar_chart(pivot)
+
+st.caption("Plugin data source: %s" % plugin_source.upper())
 st.caption("Last refreshed: %s" % datetime.utcnow().isoformat())

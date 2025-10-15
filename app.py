@@ -176,6 +176,21 @@ async def reload_plugins(_admin_key: AdminKeyDep = None) -> dict[str, Any]:
     return {"plugins": plugin_registry.list_metadata()}
 
 
+class PluginConfigUpdate(BaseModel):
+    config: dict[str, Any]
+
+
+@app.post("/plugins/{name}/config", dependencies=[Depends(enforce_rate_limit)])
+async def update_plugin_config(name: str, update: PluginConfigUpdate, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
+    try:
+        metadata = plugin_registry.update_config(name, update.config)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"plugin": metadata}
+
+
 async def _plan_impl(idea: Idea) -> dict[str, Any]:
     trace = TraceMemory()
     defaults = {

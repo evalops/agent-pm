@@ -97,3 +97,23 @@ def test_plugin_toggle_endpoints(monkeypatch, plugin_config_tmp):
     assert "slack_followup_alerts" in names
 
     app.dependency_overrides.clear()
+
+
+def test_plugin_config_update_endpoint(monkeypatch, tmp_path, plugin_config_tmp):
+    auth.settings = settings
+    app.dependency_overrides[APIKeyDep] = lambda: "test"
+    app.dependency_overrides[AdminKeyDep] = lambda: "test"
+    client = TestClient(app)
+
+    new_path = str(tmp_path / "custom.jsonl")
+    response = client.post(
+        "/plugins/warehouse_export/config",
+        json={"config": {"path": new_path}},
+    )
+    assert response.status_code == 200
+    assert response.json()["plugin"]["config"]["path"] == new_path
+
+    metadata = plugin_registry.metadata_for("warehouse_export")
+    assert metadata["config"]["path"] == new_path
+
+    app.dependency_overrides.clear()

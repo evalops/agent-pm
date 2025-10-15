@@ -12,6 +12,15 @@ import requests
 from .alignment_log import get_alignment_summary
 
 
+def _get_plugin_registry_local() -> list[dict[str, Any]]:
+    try:
+        from .plugins import plugin_registry
+
+        return plugin_registry.list_metadata()
+    except Exception:
+        return []
+
+
 def fetch_from_api(api_url: str, api_key: str | None, limit: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     headers = {"Accept": "application/json"}
     if api_key:
@@ -40,6 +49,30 @@ def load_alignment_data(
 
     events, summary = get_alignment_summary(limit)
     return events, summary, "local"
+
+
+def load_plugin_metadata(
+    api_url: str | None = None,
+    api_key: str | None = None,
+) -> tuple[list[dict[str, Any]], str]:
+    api_url = api_url or os.getenv("PLUGINS_API_URL")
+    api_key = api_key or os.getenv("PLUGINS_API_KEY")
+    headers = {"Accept": "application/json"}
+    if api_key:
+        headers["X-API-Key"] = api_key
+    if api_url:
+        try:
+            response = requests.get(api_url, headers=headers, timeout=10)
+            response.raise_for_status()
+            payload = response.json()
+            return payload.get("plugins", []), "api"
+        except Exception:
+            pass
+
+    local = _get_plugin_registry_local()
+    if local:
+        return local, "local"
+    return [], "unavailable"
 
 
 def flatten_alignment_records(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -149,6 +182,7 @@ def followup_conversion(events: list[dict[str, Any]]) -> dict[str, Any]:
 __all__ = [
     "fetch_from_api",
     "load_alignment_data",
+    "load_plugin_metadata",
     "flatten_alignment_records",
     "status_trend_by_day",
     "status_counts_by_idea",
