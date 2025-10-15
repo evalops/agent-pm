@@ -26,7 +26,7 @@ def main() -> None:
         print(json.dumps({"summary": summary, "events": events}, indent=2))
         return
 
-    print("Alignment Summary (last %s events)" % len(events))
+    print(f"Alignment Summary (last {len(events)} events)")
     print("Status counts:")
     for status, count in sorted(summary["status_counts"].items()):
         print(f"  {status}: {count}")

@@ -10,6 +10,7 @@ import time
 from collections import deque
 from collections.abc import Iterable
 from datetime import datetime
+from importlib import metadata
 from pathlib import Path
 from typing import Any
 
@@ -18,8 +19,7 @@ from fastapi import FastAPI
 from ..metrics import record_plugin_hook_failure, record_plugin_hook_invocation
 from ..settings import settings
 from .base import PluginBase, PluginMetadata
-from .schema import dump_plugin_config, load_plugin_config, PluginConfigModel
-from importlib import metadata
+from .schema import PluginConfigModel, dump_plugin_config, load_plugin_config
 
 logger = logging.getLogger(__name__)
 

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Set, Tuple
+from contextlib import suppress
+from typing import Any
 
-Subscriber = Tuple[asyncio.Queue, asyncio.AbstractEventLoop]
+Subscriber = tuple[asyncio.Queue, asyncio.AbstractEventLoop]
 
-_subscribers: Set[Subscriber] = set()
+_subscribers: set[Subscriber] = set()
 
 
 def register_subscriber() -> asyncio.Queue:
@@ -29,10 +30,8 @@ def broadcast_alignment_event(event: dict[str, Any]) -> None:
 
     for queue, loop in list(_subscribers):
         def _put(evt=event, q=queue) -> None:
-            try:
+            with suppress(asyncio.QueueFull):  # pragma: no cover - queues are unbounded by default
                 q.put_nowait(evt)
-            except asyncio.QueueFull:  # pragma: no cover - queues are unbounded by default
-                pass
 
         try:
             loop.call_soon_threadsafe(_put)

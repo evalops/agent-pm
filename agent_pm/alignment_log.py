@@ -6,9 +6,11 @@ import asyncio
 import json
 import uuid
 from collections import Counter
+from collections.abc import Callable
+from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from sqlalchemy import select
 
@@ -105,20 +107,16 @@ def record_alignment_event(event: dict[str, Any]) -> dict[str, Any]:
         suggestions = [suggestions]
     enriched["suggestions"] = suggestions
 
-    try:
+    with suppress(Exception):  # pragma: no cover - persistence best-effort
         _alignment_log.append(enriched)
-    except Exception:  # pragma: no cover - persistence best-effort
-        pass
 
-    try:
+    with suppress(Exception):  # pragma: no cover - realtime fan-out best-effort
         from .alignment_stream import broadcast_alignment_event
 
         broadcast_alignment_event(enriched)
-    except Exception:  # pragma: no cover - realtime fan-out best-effort
-        pass
 
     if _database_configured():
-        try:
+        with suppress(Exception):  # pragma: no cover - best-effort persistence
             async def _runner() -> None:
                 await _persist_event_db(enriched)
 
@@ -128,8 +126,6 @@ def record_alignment_event(event: dict[str, Any]) -> dict[str, Any]:
                 asyncio.run(_runner())
             else:
                 loop.create_task(_runner())
-        except Exception:  # pragma: no cover - best-effort persistence
-            pass
 
     plugin_registry.fire("post_alignment_event", event=enriched)
     return enriched
@@ -239,12 +235,10 @@ async def record_alignment_followup_event(event_id: str, status: str) -> bool:
     if local_updated or db_updated:
         record_alignment_followup(status)
         if captured is not None:
-            try:
+            with suppress(Exception):  # pragma: no cover - best effort broadcast
                 from .alignment_stream import broadcast_alignment_event
 
                 broadcast_alignment_event(captured)
-            except Exception:  # pragma: no cover - best effort broadcast
-                pass
             plugin_registry.fire("post_alignment_followup", event=captured, status=status)
         return True
     return False

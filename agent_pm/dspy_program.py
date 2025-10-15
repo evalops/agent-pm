@@ -71,9 +71,8 @@ def _configured_program() -> PlannerProgram:
         program = PlannerProgram()
     except Exception as exc:  # pragma: no cover - defensive
         err = RuntimeError("Failed to configure DSPy planner")
-        err.__cause__ = exc
         _configuration_error = err
-        raise err
+        raise err from exc
 
     return program
 

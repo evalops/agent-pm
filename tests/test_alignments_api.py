@@ -1,5 +1,6 @@
-import app as app_module
 from fastapi.testclient import TestClient
+
+import app as app_module
 
 
 def test_alignments_endpoint(monkeypatch):

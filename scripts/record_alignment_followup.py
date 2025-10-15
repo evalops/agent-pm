@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CLI helper to record alignment follow-up outcomes.""""
+"""CLI helper to record alignment follow-up outcomes."""
 
 from __future__ import annotations
 

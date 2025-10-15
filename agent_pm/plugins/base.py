@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Optional, Sequence
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, HTTPException
 
@@ -30,9 +31,9 @@ class PluginBase:
     hooks: Sequence[str] = ()
     required_secrets: Sequence[str] = ()
 
-    def __init__(self, config: Optional[dict[str, Any]] = None) -> None:
+    def __init__(self, config: dict[str, Any] | None = None) -> None:
         self.config = config or {}
-        self.registry: "PluginRegistry | None" = None
+        self.registry: PluginRegistry | None = None
         self.active: bool = True
         self._secret_overrides: dict[str, Any] = dict(self.config.get("secrets", {}))
 

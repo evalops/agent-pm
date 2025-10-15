@@ -8,13 +8,19 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, model_validator
-
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import PlainTextResponse
+from pydantic import BaseModel, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_pm.agent_sdk import planner_tools_default_enabled, reload_agent_profiles
+from agent_pm.alignment_log import (
+    fetch_alignment_events,
+    get_alignment_summary,
+    record_alignment_followup_event,
+    summarize_alignment_events,
+)
+from agent_pm.alignment_stream import register_subscriber, unregister_subscriber
 from agent_pm.auth import AdminKeyDep, APIKeyDep
 from agent_pm.clients import calendar_client, github_client, jira_client, slack_client
 from agent_pm.database import PRDVersion, get_db
@@ -23,18 +29,11 @@ from agent_pm.health import check_all_dependencies
 from agent_pm.logging_config import configure_logging
 from agent_pm.memory import TraceMemory
 from agent_pm.metrics import latest_metrics, record_alignment_export
-from agent_pm.alignment_log import (
-    fetch_alignment_events,
-    get_alignment_summary,
-    record_alignment_followup_event,
-    summarize_alignment_events,
-)
-from agent_pm.alignment_stream import register_subscriber, unregister_subscriber
 from agent_pm.models import BatchIdea, Idea, JiraIssuePayload, ReviewEvent, SlackDigest, TicketPlan
 from agent_pm.planner import generate_plan
+from agent_pm.plugins import plugin_registry
 from agent_pm.prd_changelog import generate_changelog
 from agent_pm.prd_versions import approve_version, create_branch, create_version, get_blame, get_version_history
-from agent_pm.plugins import plugin_registry
 from agent_pm.procedures import loader as procedure_loader
 from agent_pm.rate_limit import enforce_concurrency_limit, enforce_rate_limit, release_concurrency
 from agent_pm.settings import settings
@@ -162,7 +161,7 @@ async def enable_plugin(name: str, _admin_key: AdminKeyDep = None) -> dict[str, 
     try:
         metadata = plugin_registry.set_enabled(name, True)
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"plugin": metadata}
 
 
@@ -171,7 +170,7 @@ async def disable_plugin(name: str, _admin_key: AdminKeyDep = None) -> dict[str,
     try:
         metadata = plugin_registry.set_enabled(name, False)
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"plugin": metadata}
 
 
@@ -186,9 +185,9 @@ async def reload_plugin(name: str, _admin_key: AdminKeyDep = None) -> dict[str, 
     try:
         metadata = plugin_registry.reload_plugin(name)
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"plugin": metadata}
 
 
@@ -205,7 +204,7 @@ class PluginInstallRequest(BaseModel):
     description: str | None = None
 
     @model_validator(mode="after")
-    def _validate_source(self) -> "PluginInstallRequest":
+    def _validate_source(self) -> PluginInstallRequest:
         if not self.module and not self.entry_point:
             raise ValueError("module or entry_point is required")
         return self
@@ -216,9 +215,9 @@ async def update_plugin_config(name: str, update: PluginConfigUpdate, _admin_key
     try:
         metadata = plugin_registry.update_config(name, update.config)
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"plugin": metadata}
 
 
@@ -254,7 +253,7 @@ async def install_plugin_endpoint(request: PluginInstallRequest, _admin_key: Adm
             hooks=hooks,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"plugin": metadata}
 
 

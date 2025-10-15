@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import csv
 import io
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 from urllib.parse import urlparse
 
 from .alignment_dashboard import flatten_alignment_records
@@ -31,7 +32,7 @@ def write_csv(path: Path, events: Iterable[dict[str, Any]], *, statuses: set[str
         path.write_text("", encoding="utf-8")
         return path
 
-    fieldnames = sorted({key for row in rows for key in row.keys()})
+    fieldnames = sorted({key for row in rows for key in row})
 
     with path.open("w", encoding="utf-8", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=fieldnames)
@@ -63,7 +64,7 @@ def upload_csv_to_s3(uri: str, events: Iterable[dict[str, Any]], *, statuses: se
     rows = build_rows(events)
     if statuses:
         rows = [row for row in rows if row.get("followup_status") in statuses]
-    fieldnames = sorted({key for row in rows for key in row.keys()})
+    fieldnames = sorted({key for row in rows for key in row})
     buffer = io.StringIO()
     writer = csv.DictWriter(buffer, fieldnames=fieldnames)
     writer.writeheader()

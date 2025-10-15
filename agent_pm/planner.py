@@ -6,7 +6,6 @@ from collections import deque
 from datetime import datetime
 
 from . import embeddings
-
 from .agent_sdk import CriticReview, PRDPlan, run_critic_agent, run_planner_agent
 from .alignment_log import record_alignment_event
 from .clients import openai_client, slack_client
@@ -91,10 +90,7 @@ def _extract_goal_section(prd_text: str) -> list[str]:
             break
         if not capture:
             continue
-        if stripped.startswith(("-", "•")):
-            goal = stripped.lstrip("-• ").strip()
-        else:
-            goal = stripped
+        goal = stripped.lstrip("-• ").strip() if stripped.startswith(("-", "•")) else stripped
         if goal:
             extracted.append(goal)
     return extracted

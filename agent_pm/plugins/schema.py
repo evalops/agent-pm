@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 
 class PluginConfigModel(BaseModel):

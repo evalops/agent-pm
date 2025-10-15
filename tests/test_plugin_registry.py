@@ -1,8 +1,6 @@
 import asyncio
 import json
-from pathlib import Path
 
-import pytest
 import yaml
 
 from agent_pm.clients import jira_client, slack_client

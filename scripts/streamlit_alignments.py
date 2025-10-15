@@ -9,18 +9,17 @@ from datetime import datetime
 from typing import Any
 
 import pandas as pd
-import streamlit as st
 import requests
+import streamlit as st
 
 from agent_pm.alignment_dashboard import (
     flatten_alignment_records,
+    followup_conversion,
     load_alignment_data,
     load_plugin_metadata,
-    followup_conversion,
     status_counts_by_idea,
     status_trend_by_day,
 )
-
 
 st.set_page_config(page_title="Goal Alignment Insights", layout="wide")
 st.title("Goal Alignment Insights")
@@ -331,5 +330,5 @@ else:
     else:
         st.caption("Set PLUGINS_API_URL to enable plugin administration controls.")
 
-st.caption("Plugin data source: %s" % plugin_source.upper())
-st.caption("Last refreshed: %s" % datetime.utcnow().isoformat())
+st.caption(f"Plugin data source: {plugin_source.upper()}")
+st.caption(f"Last refreshed: {datetime.utcnow().isoformat()}")
