@@ -2,21 +2,44 @@
 
 from __future__ import annotations
 
+import os
+import time
 from datetime import datetime
 
 import pandas as pd
 import streamlit as st
 
-from agent_pm.alignment_dashboard import load_alignment_data
+from agent_pm.alignment_dashboard import (
+    flatten_alignment_records,
+    load_alignment_data,
+    status_counts_by_idea,
+    status_trend_by_day,
+)
 
 
 st.set_page_config(page_title="Goal Alignment Insights", layout="wide")
 st.title("Goal Alignment Insights")
 
+TOKEN = os.getenv("ALIGNMENT_DASHBOARD_TOKEN")
+
+if TOKEN:
+    if "auth_ok" not in st.session_state:
+        st.session_state.auth_ok = False
+    with st.sidebar:
+        st.header("Authentication")
+        provided = st.text_input("Access token", type="password")
+        if st.button("Unlock"):
+            st.session_state.auth_ok = provided == TOKEN
+        if not st.session_state.get("auth_ok"):
+            st.warning("Enter the access token to view the dashboard.")
+            st.stop()
+
 with st.sidebar:
     st.header("Configuration")
     limit = st.slider("Events to load", min_value=10, max_value=200, value=50, step=10)
-    refresh = st.button("Refresh data", use_container_width=True)
+    auto_refresh = st.checkbox("Auto-refresh", value=True)
+    refresh_interval = st.number_input("Refresh interval (seconds)", min_value=15, max_value=300, value=60, step=15)
+    refresh = st.button("Refresh now", use_container_width=True)
 
 
 @st.cache_data(ttl=60)
@@ -27,7 +50,22 @@ def _get_alignment_data(limit_value: int):
 if refresh:
     _get_alignment_data.clear()
 
+if auto_refresh:
+    last = st.session_state.get("_auto_refresh_last", 0.0)
+    now = time.time()
+    if now - last >= refresh_interval:
+        st.session_state["_auto_refresh_last"] = now
+    else:
+        delay = max(refresh_interval - (now - last), 0.5)
+        time.sleep(delay)
+        st.session_state["_auto_refresh_last"] = time.time()
+        st.experimental_rerun()
+
+
 events, summary, source = _get_alignment_data(limit)
+
+records = flatten_alignment_records(events)
+df = pd.DataFrame.from_records(records)
 
 st.caption(f"Data source: {source.upper()} (last {summary.get('total_events', len(events))} events)")
 
@@ -40,61 +78,65 @@ col2.metric("Success Notifications", status_counts.get("success", 0))
 col3.metric("Failures", status_counts.get("error", 0) + status_counts.get("failed", 0))
 
 status_filter = st.multiselect("Filter by status", options=status_keys, default=status_keys)
+channel_options: list[str] = []
+if not df.empty and "channel" in df.columns:
+    channel_options = sorted([value for value in df["channel"].dropna().unique() if value])
+channel_filter = st.multiselect("Filter by Slack channel", options=channel_options, default=channel_options)
 search_text = st.text_input("Search by initiative or idea")
 
-
-def _build_dataframe(raw_events: list[dict[str, object]]) -> pd.DataFrame:
-    records: list[dict[str, object]] = []
-    for event in raw_events:
-        notification = event.get("notification", {})
-        status = notification.get("status", "unknown")
-        suggestions = event.get("suggestions", [])
-        if not suggestions:
-            records.append(
-                {
-                    "title": event.get("title"),
-                    "status": status,
-                    "idea": None,
-                    "overlapping_goals": None,
-                    "similarity": None,
-                    "created_at": event.get("created_at"),
-                }
+if not df.empty:
+    if status_filter:
+        df = df[df["status"].isin(status_filter)]
+    if channel_filter:
+        df = df[df["channel"].isin(channel_filter)]
+    if search_text:
+        lowered = search_text.lower()
+        df = df[
+            df.apply(
+                lambda row: lowered in str(row.get("title", "")).lower()
+                or lowered in str(row.get("idea", "")).lower(),
+                axis=1,
             )
-            continue
-        for suggestion in suggestions:
-            records.append(
-                {
-                    "title": event.get("title"),
-                    "status": status,
-                    "idea": suggestion.get("idea"),
-                    "overlapping_goals": ", ".join(suggestion.get("overlapping_goals", [])),
-                    "similarity": suggestion.get("similarity"),
-                    "created_at": event.get("created_at"),
-                }
-            )
-    df = pd.DataFrame.from_records(records)
-    if not df.empty:
-        df["created_at"] = df["created_at"].apply(lambda ts: ts or None)
-    return df
-
-
-df = _build_dataframe(events)
-
-if status_filter:
-    df = df[df["status"].isin(status_filter)]
-
-if search_text:
-    lowered = search_text.lower()
-    df = df[df.apply(lambda row: lowered in str(row.get("title", "")).lower() or lowered in str(row.get("idea", "")).lower(), axis=1)]
+        ]
 
 st.subheader("Alignment Matches")
 if df.empty:
     st.info("No alignment events available with the current filters.")
 else:
     df_display = df.copy()
+    if "overlapping_goals" in df_display.columns:
+        df_display["overlapping_goals"] = df_display["overlapping_goals"].apply(
+            lambda goals: ", ".join(goals) if isinstance(goals, list) else goals
+        )
     if "similarity" in df_display.columns:
-        df_display["similarity"] = df_display["similarity"].apply(lambda v: f"{v:.2f}" if isinstance(v, (int, float)) else v)
-    st.dataframe(df_display, use_container_width=True)
+        df_display["similarity"] = df_display["similarity"].apply(
+            lambda v: f"{v:.2f}" if isinstance(v, (int, float)) else v
+        )
+    if "slack_link" in df_display.columns:
+        df_display["slack_link"] = df_display["slack_link"].fillna("")
+    st.dataframe(
+        df_display,
+        use_container_width=True,
+        column_config={
+            "slack_link": st.column_config.LinkColumn("Slack", display_text="Open")
+        },
+    )
+
+st.subheader("Status Trend")
+trend_data = status_trend_by_day(events)
+if trend_data:
+    trend_df = pd.DataFrame(trend_data).set_index("date")
+    st.area_chart(trend_df)
+else:
+    st.info("No status trend data available yet.")
+
+st.subheader("Outcome by Initiative")
+idea_breakdown = status_counts_by_idea(events)
+if idea_breakdown:
+    idea_df = pd.DataFrame(idea_breakdown).set_index("idea")
+    st.bar_chart(idea_df)
+else:
+    st.info("No initiative outcome data to display.")
 
 if summary.get("top_ideas"):
     st.subheader("Top Overlapping Initiatives")

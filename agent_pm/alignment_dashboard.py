@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Tuple
+from collections import Counter, defaultdict
+from datetime import datetime
+from typing import Any
 
 import requests
 
@@ -40,4 +42,80 @@ def load_alignment_data(
     return events, summary, "local"
 
 
-__all__ = ["fetch_from_api", "load_alignment_data"]
+def flatten_alignment_records(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for event in events:
+        note = event.get("notification", {}) or {}
+        suggestions = event.get("suggestions", []) or [None]
+        for suggestion in suggestions:
+            record = {
+                "title": event.get("title"),
+                "status": note.get("status", "unknown"),
+                "channel": note.get("channel"),
+                "created_at": event.get("created_at"),
+                "idea": None,
+                "overlapping_goals": None,
+                "similarity": None,
+                "slack_link": None,
+            }
+            if isinstance(suggestion, dict):
+                external = suggestion.get("external_context", {}) or {}
+                record.update(
+                    {
+                        "idea": suggestion.get("idea"),
+                        "overlapping_goals": suggestion.get("overlapping_goals", []),
+                        "similarity": suggestion.get("similarity"),
+                        "external_context": external,
+                        "slack_link": external.get("slack_link_hint"),
+                        "status_channel": external.get("status_channel"),
+                    }
+                )
+            records.append(record)
+    return records
+
+
+def status_trend_by_day(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    counts: dict[str, Counter[str]] = defaultdict(Counter)
+    for event in events:
+        created = event.get("created_at")
+        try:
+            date_key = datetime.fromisoformat(created).date().isoformat() if created else "unknown"
+        except ValueError:
+            date_key = "unknown"
+        status = (event.get("notification") or {}).get("status", "unknown")
+        counts[date_key][status] += 1
+
+    rows: list[dict[str, Any]] = []
+    for day in sorted(counts.keys()):
+        row = {"date": day}
+        row.update(counts[day])
+        rows.append(row)
+    return rows
+
+
+def status_counts_by_idea(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    buckets: dict[str, Counter[str]] = defaultdict(Counter)
+    for event in events:
+        note = event.get("notification") or {}
+        status = note.get("status", "unknown")
+        for suggestion in event.get("suggestions", []):
+            idea = suggestion.get("idea") if isinstance(suggestion, dict) else None
+            if idea:
+                buckets[idea][status] += 1
+
+    results: list[dict[str, Any]] = []
+    for idea, counter in buckets.items():
+        total = sum(counter.values())
+        results.append({"idea": idea, "total": total, **dict(counter)})
+
+    results.sort(key=lambda item: item["total"], reverse=True)
+    return results
+
+
+__all__ = [
+    "fetch_from_api",
+    "load_alignment_data",
+    "flatten_alignment_records",
+    "status_trend_by_day",
+    "status_counts_by_idea",
+]
