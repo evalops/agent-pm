@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     vector_store_path: Path = Field(Path("./data/vector_store.json"), alias="VECTOR_STORE_PATH")
     trace_dir: Path = Field(Path("./data/traces"), alias="TRACE_DIR")
     tool_config_path: Path = Field(Path("./config/tools.yaml"), alias="TOOL_CONFIG_PATH")
+    plugin_config_path: Path = Field(Path("./config/plugins.yaml"), alias="PLUGIN_CONFIG_PATH")
     procedure_dir: Path = Field(Path("./procedures"), alias="PROCEDURE_DIR")
     allowed_projects: list[str] = Field(default_factory=list, alias="ALLOWED_PROJECTS")
 

@@ -1,0 +1,13 @@
+- name: ticket_automation
+  module: agent_pm.plugins.ticket_automation:TicketAutomationPlugin
+  enabled: true
+  config:
+    project_key: AGENT
+    issue_type: Task
+    summary_prefix: "[Plan]"
+- name: feedback_collector
+  module: agent_pm.plugins.feedback:FeedbackPlugin
+  enabled: true
+  config:
+    storage_path: ./data/feedback.json
+    route_prefix: /plugins/feedback

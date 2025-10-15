@@ -59,6 +59,12 @@ alignment_exports_total = Counter(
     labelnames=("kind",),
 )
 
+alignment_feedback_total = Counter(
+    "alignment_feedback_total",
+    "Feedback submissions grouped by source",
+    labelnames=("source",),
+)
+
 
 @contextmanager
 def record_planner_request() -> None:
@@ -100,6 +106,10 @@ def record_alignment_export(kind: str) -> None:
     alignment_exports_total.labels(kind=kind).inc()
 
 
+def record_feedback_submission(source: str) -> None:
+    alignment_feedback_total.labels(source=source).inc()
+
+
 def latest_metrics() -> bytes:
     return generate_latest()
 
@@ -113,5 +123,6 @@ __all__ = [
     "record_alignment_notification",
     "record_alignment_followup",
     "record_alignment_export",
+    "record_feedback_submission",
     "latest_metrics",
 ]

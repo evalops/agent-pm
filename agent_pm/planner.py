@@ -18,6 +18,7 @@ from .metrics import (
     record_planner_request,
     record_revisions,
 )
+from .plugins import plugin_registry
 from .settings import settings
 from .templates import PRD_TEMPLATE
 
@@ -485,7 +486,7 @@ def generate_plan(
             "notification": {"status": alignment_status, **notification_meta},
         }
     )
-    return {
+    result = {
         "prd_markdown": prd,
         "raw_plan": text,
         "status_digest": digest,
@@ -497,6 +498,19 @@ def generate_plan(
         "alignment_event": alignment_event,
         "alignment_event_id": alignment_event.get("event_id"),
     }
+    plugin_context = {
+        "title": title,
+        "context": context,
+        "requirements": requirements,
+        "acceptance": acceptance,
+        "goals": goals,
+        "nongoals": nongoals,
+        "risks": risks,
+        "users": users_value,
+        "alignment": alignment_suggestions,
+    }
+    plugin_registry.fire("post_plan", plan=result, context=plugin_context)
+    return result
 
 
 __all__ = ["generate_plan", "build_user_prompt", "SYSTEM_PROMPT", "build_status_digest"]

@@ -34,6 +34,7 @@ from agent_pm.models import BatchIdea, Idea, JiraIssuePayload, ReviewEvent, Slac
 from agent_pm.planner import generate_plan
 from agent_pm.prd_changelog import generate_changelog
 from agent_pm.prd_versions import approve_version, create_branch, create_version, get_blame, get_version_history
+from agent_pm.plugins import plugin_registry
 from agent_pm.procedures import loader as procedure_loader
 from agent_pm.rate_limit import enforce_concurrency_limit, enforce_rate_limit, release_concurrency
 from agent_pm.settings import settings
@@ -53,6 +54,9 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Agent PM", version="0.1.0")
 _jira_lock = asyncio.Lock()
 _task_queue: TaskQueue | None = None
+
+for router, prefix in plugin_registry.routers:
+    app.include_router(router, prefix=prefix)
 
 
 class FollowupUpdate(BaseModel):
@@ -142,6 +146,11 @@ async def alignment_summary(limit: int = 100, _admin_key: AdminKeyDep = None) ->
     events, summary = get_alignment_summary(limit)
     record_alignment_export("summary")
     return {"events": events, "summary": summary}
+
+
+@app.get("/plugins", dependencies=[Depends(enforce_rate_limit)])
+async def list_plugins_endpoint(_admin_key: AdminKeyDep = None) -> dict[str, Any]:
+    return {"plugins": plugin_registry.list_metadata()}
 
 
 async def _plan_impl(idea: Idea) -> dict[str, Any]:
