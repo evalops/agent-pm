@@ -2,6 +2,9 @@
 
 import json
 import logging
+from collections import deque
+
+from . import embeddings
 
 from .agent_sdk import CriticReview, PRDPlan, run_critic_agent, run_planner_agent
 from .clients import openai_client, slack_client
@@ -36,6 +39,10 @@ logger = logging.getLogger(__name__)
 REVISION_LIMIT = 1
 
 GOAL_ALIGNMENT_LIMIT = 3
+GOAL_ALIGNMENT_SIMILARITY_THRESHOLD = 0.7
+_ALIGNMENT_HISTORY_MAX = 100
+_alignment_history: deque[tuple[str, str]] = deque(maxlen=_ALIGNMENT_HISTORY_MAX)
+_alignment_history_set: set[tuple[str, str]] = set()
 
 
 def build_user_prompt(title: str, context: str, constraints: list[str] | None = None) -> str:
@@ -67,8 +74,43 @@ def build_revision_prompt(
     )
 
 
+def _extract_goal_section(prd_text: str) -> list[str]:
+    lines = prd_text.splitlines()
+    capture = False
+    extracted: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("## "):
+            capture = stripped.lower().startswith("## goals")
+            continue
+        if capture and stripped.startswith("#"):
+            break
+        if not capture:
+            continue
+        if stripped.startswith(("-", "•")):
+            goal = stripped.lstrip("-• ").strip()
+        else:
+            goal = stripped
+        if goal:
+            extracted.append(goal)
+    return extracted
+
+
 def _collect_related_goals(title: str, goals: list[str]) -> list[dict[str, object]]:
     if not goals:
+        return []
+
+    query_text = " ".join(goal for goal in goals if goal)
+    if not query_text:
+        return []
+
+    try:
+        query_embedding = embeddings.generate_embedding_sync(query_text)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("goal embedding failed: %s", exc)
+        return []
+
+    if not query_embedding:
         return []
 
     try:
@@ -80,11 +122,8 @@ def _collect_related_goals(title: str, goals: list[str]) -> list[dict[str, objec
     if df.empty:
         return []
 
-    normalized_goals = [(goal, goal.lower()) for goal in goals if goal]
-    if not normalized_goals:
-        return []
-
     suggestions: list[dict[str, object]] = []
+
     for _, row in df.iterrows():
         existing_title = row.get("idea")
         if not isinstance(existing_title, str) or existing_title == title:
@@ -93,21 +132,35 @@ def _collect_related_goals(title: str, goals: list[str]) -> list[dict[str, objec
         prd_text = row.get("prd")
         if not isinstance(prd_text, str):
             continue
-        prd_text_lower = prd_text.lower()
 
-        overlapping: list[str] = []
-        for original, normalized in normalized_goals:
-            if normalized and normalized in prd_text_lower:
-                overlapping.append(original)
-
-        if not overlapping:
+        candidate_goals = _extract_goal_section(prd_text)
+        candidate_text = " ".join(candidate_goals)
+        if not candidate_text:
             continue
 
-        suggestions.append({"idea": existing_title, "overlapping_goals": overlapping})
-        if len(suggestions) >= GOAL_ALIGNMENT_LIMIT:
-            break
+        candidate_embedding = embeddings.generate_embedding_sync(candidate_text)
+        if not candidate_embedding:
+            continue
 
-    return suggestions
+        similarity = embeddings.cosine_similarity(query_embedding, candidate_embedding)
+        if similarity < GOAL_ALIGNMENT_SIMILARITY_THRESHOLD:
+            continue
+
+        candidate_text_lower = candidate_text.lower()
+        overlapping = [goal for goal in goals if goal.lower() in candidate_text_lower]
+        if not overlapping:
+            overlapping = candidate_goals[:3]
+
+        suggestions.append(
+            {
+                "idea": existing_title,
+                "overlapping_goals": overlapping,
+                "similarity": round(similarity, 3),
+            }
+        )
+
+    suggestions.sort(key=lambda item: item.get("similarity", 0.0), reverse=True)
+    return suggestions[:GOAL_ALIGNMENT_LIMIT]
 
 
 def _build_alignment_note(suggestions: list[dict[str, object]]) -> str:
@@ -115,15 +168,43 @@ def _build_alignment_note(suggestions: list[dict[str, object]]) -> str:
     for item in suggestions:
         idea = item.get("idea", "Unknown initiative")
         goals_str = ", ".join(item.get("overlapping_goals", []))
-        lines.append(f"- {idea}: {goals_str}")
+        similarity = item.get("similarity")
+        suffix = f" (similarity {similarity:.2f})" if isinstance(similarity, (int, float)) else ""
+        lines.append(f"- {idea}{suffix}: {goals_str}")
     return "\n".join(lines)
 
 
-def _notify_alignment(title: str, alignment_note: str) -> None:
+def _mark_alignment_notified(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    new_pairs: list[tuple[str, str]] = []
+    for pair in pairs:
+        if pair in _alignment_history_set:
+            continue
+        if len(_alignment_history) == _alignment_history.maxlen:
+            old = _alignment_history.popleft()
+            _alignment_history_set.discard(old)
+        _alignment_history.append(pair)
+        _alignment_history_set.add(pair)
+        new_pairs.append(pair)
+    return new_pairs
+
+
+def _notify_alignment(title: str, alignment_note: str, suggestions: list[dict[str, object]]) -> None:
     if not alignment_note:
         return
 
-    if settings.dry_run and not slack_client.enabled:
+    if not settings.goal_alignment_notify:
+        return
+
+    if not slack_client.enabled:
+        if settings.dry_run:
+            return
+        logger.info("Slack client disabled; skipping goal alignment notification")
+        return
+
+    pairs = [(title, str(item.get("idea"))) for item in suggestions if item.get("idea")]
+    new_pairs = _mark_alignment_notified(pairs)
+    if not new_pairs:
+        logger.info("Skipping duplicate goal alignment notification for %s", title)
         return
 
     message = f"*Goal alignment surfaced for*: {title}\n{alignment_note}"
@@ -139,7 +220,15 @@ def _notify_alignment(title: str, alignment_note: str) -> None:
         except RuntimeError:
             asyncio.run(_post())
         else:
-            loop.create_task(_post())
+            task = loop.create_task(_post())
+
+            def _log_completion(task: asyncio.Task) -> None:
+                if task.cancelled():  # pragma: no cover - defensive
+                    logger.info("Goal alignment notification task cancelled")
+                elif (exc := task.exception()) is not None:
+                    logger.warning("Goal alignment notification failed: %s", exc)
+
+            task.add_done_callback(_log_completion)
     except Exception as exc:  # pragma: no cover - logging for observability
         logger.warning("Failed to dispatch goal alignment notification: %s", exc)
 
@@ -301,7 +390,7 @@ def generate_plan(
         )
         alignment_note = _build_alignment_note(alignment_suggestions)
         user_prompt = f"{user_prompt}\n\nExisting alignment signal:\n{alignment_note}"
-        _notify_alignment(title, alignment_note)
+        _notify_alignment(title, alignment_note, alignment_suggestions)
         logger.info("Goal alignment note appended to planner prompt")
     if guidance:
         user_prompt = f"{user_prompt}\n\nGuidance:\n{guidance}"

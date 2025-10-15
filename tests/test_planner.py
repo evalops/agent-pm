@@ -3,6 +3,7 @@ import os
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 
 # Ensure required settings before importing planner
 os.environ.setdefault("OPENAI_API_KEY", "test-key")
@@ -403,6 +404,18 @@ def test_goal_alignment_appends_note(monkeypatch):
     )
     monkeypatch.setattr(planner.vector_memory, "to_dataframe", lambda: alignment_df)
 
+    monkeypatch.setattr(
+        planner.embeddings,
+        "generate_embedding_sync",
+        lambda text, model="text-embedding-3-small": [1.0, 0.0]
+        if "visibility" in text.lower()
+        else [0.0, 1.0],
+    )
+    monkeypatch.setattr(planner.embeddings, "cosine_similarity", lambda a, b: 0.95 if a == b else 0.1)
+
+    planner._alignment_history.clear()
+    planner._alignment_history_set.clear()
+
     plan = PRDPlan(
         problem="Data fragmentation",
         goals=["Improve visibility for PMs"],
@@ -422,7 +435,11 @@ def test_goal_alignment_appends_note(monkeypatch):
 
     captured_prompt = {}
     notifications: list[tuple[tuple[str, ...], dict[str, object]]] = []
-    monkeypatch.setattr(planner, "_notify_alignment", lambda *args, **kwargs: notifications.append((args, kwargs)))
+    monkeypatch.setattr(
+        planner,
+        "_notify_alignment",
+        lambda *args, **kwargs: notifications.append((args, kwargs)),
+    )
 
     def _fake_create_plan(system_prompt, user_prompt, tools):
         captured_prompt["user"] = user_prompt
@@ -453,3 +470,48 @@ def test_goal_alignment_appends_note(monkeypatch):
     matching_events = [e for e in alignment_events if e.get("event") == "goal_alignment"]
     assert matching_events
     assert notifications and notifications[0][0][0] == "Visibility Initiative"
+
+
+def test_notify_alignment_respects_configuration(monkeypatch):
+    planner._alignment_history.clear()
+    planner._alignment_history_set.clear()
+
+    monkeypatch.setattr(planner.settings, "goal_alignment_notify", False)
+    monkeypatch.setattr(planner.settings, "dry_run", False)
+    monkeypatch.setattr(planner.slack_client, "token", "token", raising=False)
+    monkeypatch.setattr(planner.slack_client, "channel", "channel", raising=False)
+
+    calls: list[str] = []
+
+    async def _fake_post(body_md: str, channel: str | None = None) -> dict[str, object]:
+        calls.append(body_md)
+        return {"ok": True}
+
+    monkeypatch.setattr(planner.slack_client, "post_digest", _fake_post)
+
+    planner._notify_alignment("Test Initiative", "Note", [{"idea": "Other"}])
+
+    assert calls == []
+
+
+def test_notify_alignment_deduplicates_pairs(monkeypatch):
+    planner._alignment_history.clear()
+    planner._alignment_history_set.clear()
+
+    monkeypatch.setattr(planner.settings, "goal_alignment_notify", True)
+    monkeypatch.setattr(planner.settings, "dry_run", False)
+    monkeypatch.setattr(planner.slack_client, "token", "token", raising=False)
+    monkeypatch.setattr(planner.slack_client, "channel", "channel", raising=False)
+
+    calls: list[str] = []
+
+    async def _fake_post(body_md: str, channel: str | None = None) -> dict[str, object]:
+        calls.append(body_md)
+        return {"ok": True}
+
+    monkeypatch.setattr(planner.slack_client, "post_digest", _fake_post)
+
+    planner._notify_alignment("Test Initiative", "Note", [{"idea": "Other"}])
+    planner._notify_alignment("Test Initiative", "Another note", [{"idea": "Other"}])
+
+    assert len(calls) == 1

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 
@@ -40,6 +41,29 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
     if magnitude_a == 0 or magnitude_b == 0:
         return 0.0
     return dot_product / (magnitude_a * magnitude_b)
+
+
+def generate_embedding_sync(text: str, model: str = "text-embedding-3-small") -> list[float]:
+    """Blocking helper for generating embeddings.
+
+    Falls back to deterministic stub when called from an active event loop or
+    when OpenAI access fails.
+    """
+
+    if not text:
+        return []
+
+    async def _generate() -> list[float]:
+        return await generate_embedding(text, model=model)
+
+    try:
+        return asyncio.run(_generate())
+    except RuntimeError:
+        logger.debug("generate_embedding_sync falling back to stub due to running loop")
+        return _stub_embedding(text)
+    except Exception as exc:  # pragma: no cover - defensive path
+        logger.warning("generate_embedding_sync failed: %s", exc)
+        return _stub_embedding(text)
 
 
 async def search_similar_plans(
