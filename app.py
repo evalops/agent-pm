@@ -55,8 +55,7 @@ app = FastAPI(title="Agent PM", version="0.1.0")
 _jira_lock = asyncio.Lock()
 _task_queue: TaskQueue | None = None
 
-for router, prefix in plugin_registry.routers:
-    app.include_router(router, prefix=prefix)
+plugin_registry.attach_app(app)
 
 
 class FollowupUpdate(BaseModel):
@@ -150,6 +149,30 @@ async def alignment_summary(limit: int = 100, _admin_key: AdminKeyDep = None) ->
 
 @app.get("/plugins", dependencies=[Depends(enforce_rate_limit)])
 async def list_plugins_endpoint(_admin_key: AdminKeyDep = None) -> dict[str, Any]:
+    return {"plugins": plugin_registry.list_metadata()}
+
+
+@app.post("/plugins/{name}/enable", dependencies=[Depends(enforce_rate_limit)])
+async def enable_plugin(name: str, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
+    try:
+        metadata = plugin_registry.set_enabled(name, True)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return {"plugin": metadata}
+
+
+@app.post("/plugins/{name}/disable", dependencies=[Depends(enforce_rate_limit)])
+async def disable_plugin(name: str, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
+    try:
+        metadata = plugin_registry.set_enabled(name, False)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return {"plugin": metadata}
+
+
+@app.post("/plugins/reload", dependencies=[Depends(enforce_rate_limit)])
+async def reload_plugins(_admin_key: AdminKeyDep = None) -> dict[str, Any]:
+    plugin_registry.reload()
     return {"plugins": plugin_registry.list_metadata()}
 
 

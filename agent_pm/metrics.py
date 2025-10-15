@@ -65,6 +65,18 @@ alignment_feedback_total = Counter(
     labelnames=("source",),
 )
 
+plugin_hook_invocations_total = Counter(
+    "plugin_hook_invocations_total",
+    "Plugin hook invocation counts",
+    labelnames=("plugin", "hook"),
+)
+
+plugin_hook_failures_total = Counter(
+    "plugin_hook_failures_total",
+    "Plugin hook failures",
+    labelnames=("plugin", "hook"),
+)
+
 
 @contextmanager
 def record_planner_request() -> None:
@@ -110,6 +122,14 @@ def record_feedback_submission(source: str) -> None:
     alignment_feedback_total.labels(source=source).inc()
 
 
+def record_plugin_hook_invocation(plugin: str, hook: str) -> None:
+    plugin_hook_invocations_total.labels(plugin=plugin, hook=hook).inc()
+
+
+def record_plugin_hook_failure(plugin: str, hook: str) -> None:
+    plugin_hook_failures_total.labels(plugin=plugin, hook=hook).inc()
+
+
 def latest_metrics() -> bytes:
     return generate_latest()
 
@@ -124,5 +144,7 @@ __all__ = [
     "record_alignment_followup",
     "record_alignment_export",
     "record_feedback_submission",
+    "record_plugin_hook_invocation",
+    "record_plugin_hook_failure",
     "latest_metrics",
 ]

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional, Sequence
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 if TYPE_CHECKING:  # pragma: no cover - type hints only
     from .registry import PluginRegistry
@@ -30,6 +30,7 @@ class PluginBase:
     def __init__(self, config: Optional[dict[str, Any]] = None) -> None:
         self.config = config or {}
         self.registry: "PluginRegistry | None" = None
+        self.active: bool = True
 
     def get_router(self) -> tuple[APIRouter, str] | None:  # pragma: no cover - default has no routes
         return None
@@ -40,10 +41,20 @@ class PluginBase:
             description=self.description,
             hooks=self.hooks,
             config=self.config,
-            enabled=True,
+            enabled=self.is_enabled,
         )
 
     def emit(self, hook: str, **payload: Any) -> None:
         if self.registry is None:
             return
         self.registry.fire(hook, source=self, **payload)
+
+    @property
+    def is_enabled(self) -> bool:
+        if self.registry is not None:
+            return self.registry.is_enabled(self.name)
+        return self.active
+
+    def ensure_enabled(self) -> None:
+        if not self.is_enabled:
+            raise HTTPException(status_code=503, detail=f"Plugin {self.name} is disabled")

@@ -47,6 +47,7 @@ class FeedbackPlugin(PluginBase):
     def _register_routes(self) -> None:
         @self.router.post("", dependencies=[Depends(enforce_rate_limit)])
         async def submit(entry: FeedbackEntry, _api_key: APIKeyDep = None) -> dict[str, Any]:
+            self.ensure_enabled()
             saved = self._append(entry)
             record_feedback_submission(entry.source or "unknown")
             self.recent_feedback.append(saved)
@@ -55,10 +56,12 @@ class FeedbackPlugin(PluginBase):
 
         @self.router.get("", dependencies=[Depends(enforce_rate_limit)])
         async def list_feedback(_admin_key: AdminKeyDep = None) -> dict[str, Any]:
+            self.ensure_enabled()
             return {"feedback": self._load()}
 
         @self.router.delete("", dependencies=[Depends(enforce_rate_limit)])
         async def clear_feedback(_admin_key: AdminKeyDep = None) -> dict[str, Any]:
+            self.ensure_enabled()
             if not settings.dry_run:
                 raise HTTPException(status_code=403, detail="Clearing feedback requires DRY_RUN=true")
             self.storage_path.write_text("[]", encoding="utf-8")

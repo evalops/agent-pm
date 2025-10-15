@@ -27,7 +27,7 @@ class TicketAutomationPlugin(PluginBase):
 
     @property
     def enabled(self) -> bool:
-        return bool(self.project_key)
+        return self.is_enabled and bool(self.project_key)
 
     def pre_plan(self, context: dict[str, Any], **kwargs: Any) -> None:
         self.plan_contexts.append(dict(context))

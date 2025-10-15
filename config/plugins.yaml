@@ -11,3 +11,13 @@
   config:
     storage_path: ./data/feedback.json
     route_prefix: /plugins/feedback
+- name: slack_followup_alerts
+  module: agent_pm.plugins.slack_notifications:SlackAlertsPlugin
+  enabled: false
+  config:
+    channel: null
+- name: warehouse_export
+  module: agent_pm.plugins.warehouse_export:WarehouseExportPlugin
+  enabled: false
+  config:
+    path: ./data/plugin_events.jsonl

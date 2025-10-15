@@ -1,5 +1,7 @@
+from pathlib import Path
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 from agent_pm import auth
@@ -9,7 +11,20 @@ from agent_pm.settings import settings
 from app import app
 
 
-def test_plugins_listing_endpoint(monkeypatch):
+@pytest.fixture
+def plugin_config_tmp(monkeypatch, tmp_path):
+    original_path = plugin_registry.path
+    temp_config = tmp_path / "plugins.yaml"
+    source_path = settings.plugin_config_path
+    temp_config.write_text(Path(source_path).read_text(encoding="utf-8"), encoding="utf-8")
+    monkeypatch.setattr(plugin_registry, "path", temp_config)
+    plugin_registry.reload()
+    yield temp_config
+    monkeypatch.setattr(plugin_registry, "path", original_path)
+    plugin_registry.reload()
+
+
+def test_plugins_listing_endpoint(monkeypatch, plugin_config_tmp):
     auth.settings = settings  # ensure auth uses default settings
     app.dependency_overrides[APIKeyDep] = lambda: "test"
     app.dependency_overrides[AdminKeyDep] = lambda: "test"
@@ -23,7 +38,7 @@ def test_plugins_listing_endpoint(monkeypatch):
     app.dependency_overrides.clear()
 
 
-def test_feedback_submission_and_listing(monkeypatch, tmp_path):
+def test_feedback_submission_and_listing(monkeypatch, tmp_path, plugin_config_tmp):
     auth.settings = settings
     app.dependency_overrides[APIKeyDep] = lambda: "test"
     app.dependency_overrides[AdminKeyDep] = lambda: "test"
@@ -60,3 +75,25 @@ def test_feedback_submission_and_listing(monkeypatch, tmp_path):
     finally:
         plugin.storage_path = original_path
         app.dependency_overrides.clear()
+
+
+def test_plugin_toggle_endpoints(monkeypatch, plugin_config_tmp):
+    auth.settings = settings
+    app.dependency_overrides[APIKeyDep] = lambda: "test"
+    app.dependency_overrides[AdminKeyDep] = lambda: "test"
+    client = TestClient(app)
+
+    enable_resp = client.post("/plugins/slack_followup_alerts/enable")
+    assert enable_resp.status_code == 200
+    assert enable_resp.json()["plugin"]["enabled"] is True
+
+    disable_resp = client.post("/plugins/slack_followup_alerts/disable")
+    assert disable_resp.status_code == 200
+    assert disable_resp.json()["plugin"]["enabled"] is False
+
+    reload_resp = client.post("/plugins/reload")
+    assert reload_resp.status_code == 200
+    names = {item["name"] for item in reload_resp.json().get("plugins", [])}
+    assert "slack_followup_alerts" in names
+
+    app.dependency_overrides.clear()
