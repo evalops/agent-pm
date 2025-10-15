@@ -22,8 +22,13 @@ from agent_pm.guardrails import guardrail_context, rate_limited
 from agent_pm.health import check_all_dependencies
 from agent_pm.logging_config import configure_logging
 from agent_pm.memory import TraceMemory
-from agent_pm.metrics import latest_metrics
-from agent_pm.alignment_log import fetch_alignment_events, record_alignment_followup_event, summarize_alignment_events
+from agent_pm.metrics import latest_metrics, record_alignment_export
+from agent_pm.alignment_log import (
+    fetch_alignment_events,
+    get_alignment_summary,
+    record_alignment_followup_event,
+    summarize_alignment_events,
+)
 from agent_pm.alignment_stream import register_subscriber, unregister_subscriber
 from agent_pm.models import BatchIdea, Idea, JiraIssuePayload, ReviewEvent, SlackDigest, TicketPlan
 from agent_pm.planner import generate_plan
@@ -130,6 +135,13 @@ async def alignment_followup(event_id: str, payload: FollowupUpdate, _admin_key:
     if not updated:
         raise HTTPException(status_code=404, detail="Alignment event not found")
     return {"event_id": event_id, "status": payload.status}
+
+
+@app.get("/alignments/summary", dependencies=[Depends(enforce_rate_limit)])
+async def alignment_summary(limit: int = 100, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
+    events, summary = get_alignment_summary(limit)
+    record_alignment_export("summary")
+    return {"events": events, "summary": summary}
 
 
 async def _plan_impl(idea: Idea) -> dict[str, Any]:

@@ -9,6 +9,7 @@ from typing import Any, Iterable
 from urllib.parse import urlparse
 
 from .alignment_dashboard import flatten_alignment_records
+from .metrics import record_alignment_export
 
 try:
     import boto3  # type: ignore
@@ -20,9 +21,11 @@ def build_rows(events: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     return flatten_alignment_records(list(events))
 
 
-def write_csv(path: Path, events: Iterable[dict[str, Any]]) -> Path:
+def write_csv(path: Path, events: Iterable[dict[str, Any]], *, statuses: set[str] | None = None) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     rows = build_rows(events)
+    if statuses:
+        rows = [row for row in rows if row.get("followup_status") in statuses]
     if not rows:
         path.write_text("", encoding="utf-8")
         return path
@@ -34,10 +37,11 @@ def write_csv(path: Path, events: Iterable[dict[str, Any]]) -> Path:
         writer.writeheader()
         for row in rows:
             writer.writerow(row)
+    record_alignment_export("csv")
     return path
 
 
-def upload_csv_to_s3(uri: str, events: Iterable[dict[str, Any]]) -> None:
+def upload_csv_to_s3(uri: str, events: Iterable[dict[str, Any]], *, statuses: set[str] | None = None) -> None:
     if boto3 is None:  # pragma: no cover - optional dependency
         raise RuntimeError("boto3 is required for S3 uploads")
 
@@ -49,6 +53,8 @@ def upload_csv_to_s3(uri: str, events: Iterable[dict[str, Any]]) -> None:
     key = parsed.path.lstrip("/")
 
     rows = build_rows(events)
+    if statuses:
+        rows = [row for row in rows if row.get("followup_status") in statuses]
     fieldnames = sorted({key for row in rows for key in row.keys()})
     buffer = io.StringIO()
     writer = csv.DictWriter(buffer, fieldnames=fieldnames)
@@ -58,6 +64,7 @@ def upload_csv_to_s3(uri: str, events: Iterable[dict[str, Any]]) -> None:
 
     client = boto3.client("s3")
     client.put_object(Bucket=bucket, Key=key, Body=buffer.getvalue().encode("utf-8"), ContentType="text/csv")
+    record_alignment_export("s3")
 
 
 __all__ = ["build_rows", "write_csv", "upload_csv_to_s3"]

@@ -53,6 +53,12 @@ alignment_followup_total = Counter(
     labelnames=("status",),
 )
 
+alignment_exports_total = Counter(
+    "alignment_exports_total",
+    "Alignment export operations grouped by kind",
+    labelnames=("kind",),
+)
+
 
 @contextmanager
 def record_planner_request() -> None:
@@ -90,6 +96,10 @@ def record_alignment_followup(status: str) -> None:
     alignment_followup_total.labels(status=status).inc()
 
 
+def record_alignment_export(kind: str) -> None:
+    alignment_exports_total.labels(kind=kind).inc()
+
+
 def latest_metrics() -> bytes:
     return generate_latest()
 
@@ -102,5 +112,6 @@ __all__ = [
     "record_dspy_guidance",
     "record_alignment_notification",
     "record_alignment_followup",
+    "record_alignment_export",
     "latest_metrics",
 ]
