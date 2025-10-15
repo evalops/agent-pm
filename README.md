@@ -100,6 +100,18 @@ docker compose up          # optional Postgres/Redis/worker stack
 
 CI (GitHub Actions) runs lint + tests on every push and pull request.
 
+## Plugin Platform
+
+Agent PM ships with a pluggable automation surface that can notify downstream systems, export telemetry, or react to alignment events. The registry loads plugin definitions from `config/plugins.yaml` and supports live lifecycle management:
+
+- **Registry APIs:** `GET /plugins` returns plugin metadata (enablement state, missing secrets, hook timings, recent errors). `POST /plugins/{name}/enable|disable`, `POST /plugins/{name}/reload`, and `POST /plugins/{name}/config` manage plugin lifecycle and configuration, while `POST /plugins/install` installs new plugin entries by entrypoint or module path. `GET /plugins/discover` enumerates installable plugins exposed via the `agent_pm.plugins` entrypoint group.
+- **CLI:** `scripts/manage_plugins.py` mirrors the API—`list`, `enable/disable`, `reload` (global or per-plugin), `update` config, `discover`, and `install` commands emit JSON plus stderr hints for missing secrets or validation errors.
+- **Secrets:** Plugins can declare `required_secrets`; the framework resolves them from inline config overrides, environment variables, settings, or an optional secrets file (`PLUGIN_SECRET_PATH`). Missing values surface in `/plugins` responses, CLI output, and the dashboard.
+- **Telemetry:** The registry tracks per-hook invocation counts, failures, and rolling timing history, exposing metrics to the API and dashboard for troubleshooting.
+- **Dashboard controls:** The Streamlit dashboard (“Plugin Administration” section) displays summary metrics, hook timelines, and offers guarded controls to edit config JSON, reload, or toggle plugins when a Plugins API base URL/key is configured.
+
+For an in-depth walkthrough (configuration schema, lifecycle hooks, discovery flow, and dashboard usage) see [`docs/plugins.md`](./docs/plugins.md).
+
 ## Contributing
 
 Please open an issue or pull request with context, and run lint/tests before submitting.
