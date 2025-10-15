@@ -36,6 +36,12 @@ def test_generate_plan_produces_status_digest(monkeypatch):
     monkeypatch.setattr(planner, "openai_client", DummyOpenAIClient())
     monkeypatch.setattr(planner.vector_memory, "record_prd", lambda *args, **kwargs: None)
     monkeypatch.setattr(planner.vector_memory, "to_dataframe", lambda: pd.DataFrame())
+    fired_hooks: list[str] = []
+    monkeypatch.setattr(
+        planner.plugin_registry,
+        "fire",
+        lambda hook, *args, **kwargs: fired_hooks.append(hook),
+    )
     plan = PRDPlan(
         problem="Lack of visibility",
         goals=["Improve transparency"],
@@ -78,6 +84,8 @@ def test_generate_plan_produces_status_digest(monkeypatch):
     assert "stubbed plan" in result["raw_plan"]
     assert result["critic_review"]["status"] == "pass"
     assert result["revision_history"] == []
+    assert "pre_plan" in fired_hooks
+    assert "post_plan" in fired_hooks
 
 
 def test_generate_plan_revision_flow(monkeypatch):

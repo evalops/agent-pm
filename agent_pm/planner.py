@@ -342,6 +342,24 @@ def generate_plan(
         f"Title: {title}\nContext: {context}\nConstraints: {constraint_list}"
     )
 
+    plugin_registry.fire(
+        "pre_plan",
+        context={
+            "title": title,
+            "idea_context": context,
+            "constraints": list(constraint_list),
+            "requirements": list(requirements),
+            "acceptance": list(acceptance),
+            "goals": list(goals),
+            "nongoals": list(nongoals),
+            "risks": list(risks),
+            "users": users,
+        },
+        trace=trace,
+        enable_tools=enable_tools,
+        tools=tools,
+    )
+
     def _merge_list(default: list[str], candidate: list[str]) -> list[str]:
         return candidate if candidate else default
 

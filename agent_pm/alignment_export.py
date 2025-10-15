@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 
 from .alignment_dashboard import flatten_alignment_records
 from .metrics import record_alignment_export
+from .plugins import plugin_registry
 
 try:
     import boto3  # type: ignore
@@ -38,6 +39,13 @@ def write_csv(path: Path, events: Iterable[dict[str, Any]], *, statuses: set[str
         for row in rows:
             writer.writerow(row)
     record_alignment_export("csv")
+    plugin_registry.fire(
+        "post_ticket_export",
+        kind="csv",
+        destination=str(path),
+        rows=len(rows),
+        statuses=list(statuses) if statuses else None,
+    )
     return path
 
 
@@ -65,6 +73,13 @@ def upload_csv_to_s3(uri: str, events: Iterable[dict[str, Any]], *, statuses: se
     client = boto3.client("s3")
     client.put_object(Bucket=bucket, Key=key, Body=buffer.getvalue().encode("utf-8"), ContentType="text/csv")
     record_alignment_export("s3")
+    plugin_registry.fire(
+        "post_ticket_export",
+        kind="s3",
+        destination=uri,
+        rows=len(rows),
+        statuses=list(statuses) if statuses else None,
+    )
 
 
 __all__ = ["build_rows", "write_csv", "upload_csv_to_s3"]

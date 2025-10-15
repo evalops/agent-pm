@@ -33,11 +33,19 @@ def test_ticket_automation_plugin_creates_issue(monkeypatch, tmp_path):
 
     plan: dict[str, object] = {"prd_markdown": "# Plan", "plugins": {}}
     context = {"title": "Roadmap", "requirements": ["Ship MVP"]}
+    registry.fire("pre_plan", context=context)
     registry.fire("post_plan", plan=plan, context=context)
 
     assert calls
     assert calls[0]["fields"]["project"]["key"] == "DEMO"
     assert "ticket_automation" in plan["plugins"]
+    assert plugin.plan_contexts and plugin.plan_contexts[-1]["title"] == "Roadmap"
+
+    registry.fire("post_alignment_event", event={"event_id": "evt-123"})
+    assert "evt-123" in plugin.alignment_events
+
+    registry.fire("post_ticket_export", kind="csv", destination="/tmp/demo.csv", rows=5, statuses=["success"])
+    assert plugin.export_events[-1]["kind"] == "csv"
 
 
 def test_registry_metadata_includes_disabled(tmp_path):

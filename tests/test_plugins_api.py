@@ -1,3 +1,5 @@
+from typing import Any
+
 from fastapi.testclient import TestClient
 
 from agent_pm import auth
@@ -32,6 +34,14 @@ def test_feedback_submission_and_listing(monkeypatch, tmp_path):
     original_path = plugin.storage_path
     plugin.storage_path = tmp_path / "feedback.json"
     plugin.storage_path.write_text("[]", encoding="utf-8")
+    fired: list[tuple[str, dict[str, Any]]] = []
+    original_fire = plugin_registry.fire
+
+    def capture_fire(hook: str, *args, **kwargs):
+        fired.append((hook, kwargs))
+        return original_fire(hook, *args, **kwargs)
+
+    monkeypatch.setattr(plugin_registry, "fire", capture_fire)
     try:
         response = client.post(
             "/plugins/feedback",
@@ -46,6 +56,7 @@ def test_feedback_submission_and_listing(monkeypatch, tmp_path):
         records = list_response.json()["feedback"]
         assert len(records) == 1
         assert records[0]["rating"] == 5
+        assert any(hook == "on_feedback" for hook, _ in fired)
     finally:
         plugin.storage_path = original_path
         app.dependency_overrides.clear()

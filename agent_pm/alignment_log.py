@@ -14,6 +14,7 @@ from sqlalchemy import select
 
 from .database import AlignmentEvent, get_session_factory
 from .metrics import record_alignment_followup
+from .plugins import plugin_registry
 from .settings import settings
 
 
@@ -130,6 +131,7 @@ def record_alignment_event(event: dict[str, Any]) -> dict[str, Any]:
         except Exception:  # pragma: no cover - best-effort persistence
             pass
 
+    plugin_registry.fire("post_alignment_event", event=enriched)
     return enriched
 
 
@@ -243,6 +245,7 @@ async def record_alignment_followup_event(event_id: str, status: str) -> bool:
                 broadcast_alignment_event(captured)
             except Exception:  # pragma: no cover - best effort broadcast
                 pass
+            plugin_registry.fire("post_alignment_followup", event=captured, status=status)
         return True
     return False
 

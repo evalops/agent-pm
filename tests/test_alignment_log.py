@@ -35,18 +35,31 @@ def test_record_alignment_event_assigns_id(tmp_path, monkeypatch):
     temp_log = alignment_log.AlignmentLog(tmp_path / "alignments.json")
     monkeypatch.setattr(alignment_log, "_alignment_log", temp_log)
     monkeypatch.setattr(alignment_log, "_database_configured", lambda: False)
+    fired: list[str] = []
+    monkeypatch.setattr(
+        alignment_log.plugin_registry,
+        "fire",
+        lambda hook, *args, **kwargs: fired.append(hook),
+    )
 
     event = alignment_log.record_alignment_event({"title": "Alpha", "notification": {"status": "success"}})
 
     assert event["event_id"]
     stored = temp_log.load()
     assert stored[0]["event_id"] == event["event_id"]
+    assert "post_alignment_event" in fired
 
 
 def test_record_alignment_followup_event_updates_log(tmp_path, monkeypatch):
     temp_log = alignment_log.AlignmentLog(tmp_path / "alignments.json")
     monkeypatch.setattr(alignment_log, "_alignment_log", temp_log)
     monkeypatch.setattr(alignment_log, "_database_configured", lambda: False)
+    captured_hooks: list[str] = []
+
+    def _capture_fire(hook, *args, **kwargs):
+        captured_hooks.append(hook)
+
+    monkeypatch.setattr(alignment_log.plugin_registry, "fire", _capture_fire)
 
     event = alignment_log.record_alignment_event({"title": "Alpha", "notification": {"status": "success"}})
 
@@ -55,3 +68,4 @@ def test_record_alignment_followup_event_updates_log(tmp_path, monkeypatch):
     assert updated is True
     stored = temp_log.load()[0]
     assert stored["followup"]["status"] == "ack"
+    assert "post_alignment_followup" in captured_hooks

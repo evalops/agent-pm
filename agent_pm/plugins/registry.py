@@ -81,6 +81,7 @@ class PluginRegistry:
             plugin.description = entry["description"]
         if entry.get("hooks"):
             plugin.hooks = tuple(entry["hooks"])
+        plugin.registry = self
         return plugin
 
     @property
@@ -100,8 +101,10 @@ class PluginRegistry:
                 return plugin
         return None
 
-    def fire(self, hook: str, *args, **kwargs) -> None:
+    def fire(self, hook: str, *args, source: PluginBase | None = None, **kwargs) -> None:
         for plugin in self._plugins:
+            if source is not None and plugin is source:
+                continue
             handler = getattr(plugin, hook, None)
             if not callable(handler):
                 continue

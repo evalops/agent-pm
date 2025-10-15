@@ -39,6 +39,7 @@ class FeedbackPlugin(PluginBase):
             self.storage_path.write_text("[]", encoding="utf-8")
         self.router = APIRouter(prefix=self.config.get("route_prefix", "/plugins/feedback"), tags=["feedback"])
         self._register_routes()
+        self.recent_feedback: list[dict[str, Any]] = []
 
     def get_router(self):
         return self.router, ""
@@ -48,6 +49,8 @@ class FeedbackPlugin(PluginBase):
         async def submit(entry: FeedbackEntry, _api_key: APIKeyDep = None) -> dict[str, Any]:
             saved = self._append(entry)
             record_feedback_submission(entry.source or "unknown")
+            self.recent_feedback.append(saved)
+            self.emit("on_feedback", feedback=saved)
             return saved
 
         @self.router.get("", dependencies=[Depends(enforce_rate_limit)])
