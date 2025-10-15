@@ -20,29 +20,29 @@ class PluginConfigModel(BaseModel):
     config: dict[str, Any] | None = None
 
 
-def load_plugin_config(path: Path) -> list[dict[str, Any]]:
+def load_plugin_config(path: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     if not path.exists():
-        return []
+        return [], []
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or []
     if isinstance(data, dict):
         data = [dict({"name": key}, **value) for key, value in data.items()]
     if not isinstance(data, list):
-        raise ValueError("plugins.yaml must define a list of plugins")
+        return [], [{"index": 0, "entry": data, "error": "plugins.yaml must define a list"}]
     entries: list[dict[str, Any]] = []
-    for entry in data:
+    errors: list[dict[str, Any]] = []
+    for index, entry in enumerate(data):
         try:
             model = PluginConfigModel.model_validate(entry)
         except ValidationError as exc:
-            raise ValueError(f"Invalid plugin config: {exc}") from exc
-        entries.append(model.model_dump(exclude_unset=True))
-    return entries
+            errors.append({"index": index, "entry": entry, "error": str(exc)})
+            continue
+        payload = model.model_dump(exclude_unset=True)
+        payload["__index__"] = index
+        entries.append(payload)
+    return entries, errors
 
 
 def dump_plugin_config(path: Path, entries: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    normalised: list[dict[str, Any]] = []
-    for entry in entries:
-        model = PluginConfigModel.model_validate(entry)
-        normalised.append(model.model_dump(exclude_unset=True))
     with path.open("w", encoding="utf-8") as fh:
-        yaml.safe_dump(normalised, fh, sort_keys=False)
+        yaml.safe_dump(entries, fh, sort_keys=False)

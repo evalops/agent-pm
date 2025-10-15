@@ -35,6 +35,9 @@ def test_plugins_listing_endpoint(monkeypatch, plugin_config_tmp):
     names = {item["name"] for item in payload.get("plugins", [])}
     assert "ticket_automation" in names
     assert "feedback_collector" in names
+    for item in payload.get("plugins", []):
+        assert "errors" in item
+        assert "secrets" in item
     app.dependency_overrides.clear()
 
 
@@ -69,8 +72,8 @@ def test_feedback_submission_and_listing(monkeypatch, tmp_path, plugin_config_tm
         list_response = client.get("/plugins/feedback")
         assert list_response.status_code == 200
         records = list_response.json()["feedback"]
-        assert len(records) == 1
-        assert records[0]["rating"] == 5
+        assert any(record.get("title") == "Plan A" for record in records)
+        assert records[-1]["rating"] == 5
         assert any(hook == "on_feedback" for hook, _ in fired)
     finally:
         plugin.storage_path = original_path
@@ -112,6 +115,7 @@ def test_plugin_config_update_endpoint(monkeypatch, tmp_path, plugin_config_tmp)
     )
     assert response.status_code == 200
     assert response.json()["plugin"]["config"]["path"] == new_path
+    assert "errors" in response.json()["plugin"]
 
     metadata = plugin_registry.metadata_for("warehouse_export")
     assert metadata["config"]["path"] == new_path

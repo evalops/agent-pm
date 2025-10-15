@@ -66,6 +66,7 @@ def test_registry_metadata_includes_disabled(tmp_path):
     metadata = registry.list_metadata()
     assert metadata and metadata[0]["enabled"] is False
     assert metadata[0]["active"] is False
+    assert metadata[0]["errors"] == []
 
 
 def test_registry_set_enabled_updates_config(tmp_path):
@@ -133,6 +134,7 @@ def test_plugin_hook_metrics(monkeypatch, tmp_path):
     stats = metadata["hook_stats"]["post_plan"]
     assert stats["failures"] == 1
     assert stats["invocations"] == 1
+    assert metadata["errors"] == []
 
 
 def test_slack_and_warehouse_plugins(monkeypatch, tmp_path):
@@ -155,6 +157,7 @@ def test_slack_and_warehouse_plugins(monkeypatch, tmp_path):
 
     monkeypatch.setattr(slack_client, "token", "x")
     monkeypatch.setattr(slack_client, "channel", "alerts")
+    monkeypatch.setenv("SLACK_BOT_TOKEN", "x")
 
     registry = PluginRegistry(config_path)
     slack_plugin = registry.get("slack_followup_alerts")
@@ -186,12 +189,17 @@ def test_slack_and_warehouse_plugins(monkeypatch, tmp_path):
     assert any(record["event"] == "feedback" for record in output_records)
 
 
-def test_invalid_plugin_configuration_raises(tmp_path):
+def test_invalid_plugin_configuration_surfaces_errors(tmp_path):
     config_path = tmp_path / "plugins.yaml"
     config_path.write_text(
-        "- name: bad\n  module: invalid.module\n  enabled: true\n",
+        "- module: invalid.module\n  enabled: true\n",
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError):
-        PluginRegistry(config_path)
+    registry = PluginRegistry(config_path)
+    metadata = registry.list_metadata()
+    assert metadata
+    invalid_entry = next(item for item in metadata if item["name"].startswith("invalid_plugin"))
+    assert invalid_entry["errors"]
+    assert invalid_entry["enabled"] is False
+    assert invalid_entry["invalid"] is True

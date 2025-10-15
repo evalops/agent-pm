@@ -14,6 +14,7 @@ class TicketAutomationPlugin(PluginBase):
     name = "ticket_automation"
     description = "Create Jira issues from generated plans"
     hooks = ("pre_plan", "post_plan", "post_alignment_event", "post_ticket_export")
+    required_secrets = ("JIRA_API_TOKEN", "JIRA_EMAIL", "JIRA_BASE_URL")
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         super().__init__(config)

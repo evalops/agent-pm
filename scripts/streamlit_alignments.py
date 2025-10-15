@@ -188,6 +188,9 @@ else:
                 "enabled": item.get("enabled"),
                 "active": item.get("active"),
                 "hooks": ", ".join(item.get("hooks", [])),
+                "missing_secrets": ", ".join(item.get("secrets", {}).get("missing", [])),
+                "errors": "; ".join(item.get("errors", [])),
+                "invalid": item.get("invalid", False),
             }
         )
         for hook, counts in (item.get("hook_stats") or {}).items():

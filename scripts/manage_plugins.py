@@ -41,7 +41,15 @@ def main() -> None:
     registry = PluginRegistry()
 
     if args.command == "list":
-        print(json.dumps({"plugins": registry.list_metadata()}, indent=2))
+        metadata = registry.list_metadata()
+        for item in metadata:
+            name = item.get("name", "unknown")
+            for error in item.get("errors", []) or []:
+                print(f"[warning] {name}: {error}", file=sys.stderr)
+            missing = item.get("secrets", {}).get("missing", []) if item.get("secrets") else []
+            if missing:
+                print(f"[hint] {name}: missing secrets -> {', '.join(missing)}", file=sys.stderr)
+        print(json.dumps({"plugins": metadata}, indent=2))
     elif args.command == "enable":
         metadata = registry.set_enabled(args.name, True)
         print(json.dumps({"plugin": metadata}, indent=2))

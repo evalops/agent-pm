@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional, Sequence
 
 from fastapi import APIRouter, HTTPException
+
+from ..settings import settings
 
 if TYPE_CHECKING:  # pragma: no cover - type hints only
     from .registry import PluginRegistry
@@ -26,6 +29,7 @@ class PluginBase:
     name: str = "plugin"
     description: str = ""
     hooks: Sequence[str] = ()
+    required_secrets: Sequence[str] = ()
 
     def __init__(self, config: Optional[dict[str, Any]] = None) -> None:
         self.config = config or {}
@@ -58,3 +62,24 @@ class PluginBase:
     def ensure_enabled(self) -> None:
         if not self.is_enabled:
             raise HTTPException(status_code=503, detail=f"Plugin {self.name} is disabled")
+
+    def missing_secrets(self) -> list[str]:
+        missing: list[str] = []
+        for key in self.required_secrets:
+            if os.getenv(key):
+                continue
+            attr_name = key.lower()
+            value = getattr(settings, attr_name, None)
+            if value:
+                continue
+            missing.append(key)
+        return missing
+
+    def on_enable(self) -> None:  # pragma: no cover - overridable hook
+        return None
+
+    def on_disable(self) -> None:  # pragma: no cover - overridable hook
+        return None
+
+    def on_reload(self) -> None:  # pragma: no cover - overridable hook
+        return None

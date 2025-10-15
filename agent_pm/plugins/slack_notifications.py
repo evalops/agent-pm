@@ -14,6 +14,7 @@ class SlackAlertsPlugin(PluginBase):
     name = "slack_followup_alerts"
     description = "Post Slack alerts when follow-ups or feedback are captured"
     hooks = ("post_alignment_followup", "on_feedback")
+    required_secrets = ("SLACK_BOT_TOKEN",)
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         super().__init__(config)

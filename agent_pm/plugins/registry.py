@@ -28,6 +28,11 @@ class PluginRegistry:
         self._routers: dict[str, tuple[Any, str]] = {}
         self._mounted_plugins: set[str] = set()
         self._hook_stats: dict[str, dict[str, dict[str, int]]] = {}
+        self._config_errors: list[dict[str, Any]] = []
+        self._errors: dict[str, list[str]] = {}
+        self._order: list[str] = []
+        self._positions: dict[str, int] = {}
+        self._invalid_entries: dict[str, dict[str, Any]] = {}
         self._app: FastAPI | None = None
         self._load()
 
@@ -35,67 +40,116 @@ class PluginRegistry:
     # Loading & persistence
     # ------------------------------------------------------------------
     def _load(self) -> None:
-        entries = self._read_config()
-        self._entries = entries
-        seen: set[str] = set()
+        raw_entries, config_errors = self._read_config()
+        self._positions = {}
+        clean_entries: list[dict[str, Any]] = []
+        for item in raw_entries:
+            entry = dict(item)
+            index = entry.pop("__index__", len(self._positions))
+            name = entry.get("name")
+            if name is not None:
+                self._positions[name] = index
+            clean_entries.append(entry)
 
-        for entry in entries:
+        self._entries = clean_entries
+        self._config_errors = config_errors
+        self._invalid_entries = {}
+        self._errors = {}
+        self._metadata = {}
+        self._order = []
+        old_stats = self._hook_stats
+        new_plugins: dict[str, PluginBase] = {}
+        new_routers: dict[str, tuple[Any, str]] = {}
+
+        for entry in self._entries:
             name = entry.get("name")
             if not name:
                 logger.warning("Skipping plugin entry without name: %s", entry)
                 continue
-            seen.add(name)
+            self._errors.setdefault(name, [])
+
             enabled = bool(entry.get("enabled", True))
             config = entry.get("config", {}) or {}
             description = entry.get("description", "")
             hooks = tuple(entry.get("hooks", []))
 
-            plugin = self._plugins.get(name)
-            if plugin is None:
-                try:
-                    plugin = self._instantiate(entry, config)
-                except Exception as exc:  # pragma: no cover - defensive guard
-                    logger.exception("Failed to instantiate plugin %s", name, exc_info=exc)
-                    continue
-                self._plugins[name] = plugin
-            else:
-                plugin.config = config
+            try:
+                plugin = self._instantiate(entry, config)
+            except Exception as exc:  # pragma: no cover - defensive guard
+                logger.exception("Failed to instantiate plugin %s", name, exc_info=exc)
+                self._errors[name].append(str(exc))
+                metadata = PluginMetadata(
+                    name=name,
+                    description=description,
+                    hooks=hooks,
+                    config=config,
+                    enabled=enabled,
+                )
+                self._metadata[name] = metadata
+                continue
 
             plugin.description = description or plugin.description
             if hooks:
                 plugin.hooks = hooks
             plugin.active = enabled
             plugin.registry = self
+            new_plugins[name] = plugin
 
             metadata = PluginMetadata(
                 name=name,
                 description=plugin.description,
                 hooks=plugin.hooks,
-                config=config,
+                config=plugin.config,
                 enabled=enabled,
             )
             self._metadata[name] = metadata
 
-            if name not in self._routers:
-                router_info = plugin.get_router()
-                if router_info:
-                    self._routers[name] = router_info
-                    self._mount_router(name, router_info)
+            router_info = plugin.get_router()
+            if router_info:
+                new_routers[name] = router_info
 
-        # Remove plugins that were deleted from config
-        for name in list(self._plugins.keys() - seen):
-            self._plugins.pop(name, None)
-            self._metadata.pop(name, None)
-            self._routers.pop(name, None)
-            self._hook_stats.pop(name, None)
+        self._plugins = new_plugins
+        self._routers = new_routers
+        self._hook_stats = {name: old_stats.get(name, {}) for name in self._plugins}
 
-    def _read_config(self) -> list[dict[str, Any]]:
+        for idx, error in enumerate(self._config_errors):
+            entry = error.get("entry", {}) or {}
+            name = entry.get("name") or f"invalid_plugin_{idx}"
+            index = error.get("index", len(self._positions) + idx)
+            self._positions.setdefault(name, index)
+            self._invalid_entries[name] = entry
+            self._errors.setdefault(name, []).append(error.get("error", "invalid configuration"))
+            if name not in self._metadata:
+                metadata = PluginMetadata(
+                    name=name,
+                    description=entry.get("description", ""),
+                    hooks=tuple(entry.get("hooks", [])),
+                    config=entry.get("config", {}),
+                    enabled=False,
+                )
+                self._metadata[name] = metadata
+
+        self._order = [name for name, _ in sorted(self._positions.items(), key=lambda item: item[1])]
+
+    def _read_config(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         if not self.path.exists():
-            return []
+            return [], []
         return load_plugin_config(self.path)
 
     def _write_config(self) -> None:
-        dump_plugin_config(self.path, self._entries)
+        entry_map = {entry.get("name"): dict(entry) for entry in self._entries if entry.get("name")}
+        combined: list[tuple[int, dict[str, Any]]] = []
+
+        for name, entry in entry_map.items():
+            index = self._positions.get(name, len(combined))
+            combined.append((index, dict(entry)))
+
+        for name, entry in self._invalid_entries.items():
+            index = self._positions.get(name, len(combined))
+            combined.append((index, dict(entry)))
+
+        combined.sort(key=lambda item: item[0])
+        dump_plugin_config(self.path, [item[1] for item in combined])
 
     def _instantiate(self, entry: dict[str, Any], config: dict[str, Any]) -> PluginBase:
         module_ref = entry.get("module")
@@ -125,14 +179,33 @@ class PluginRegistry:
         self._mount_existing_routers()
 
     def reload(self) -> None:
-        previous_active = {name for name, plugin in self._plugins.items() if plugin.active}
+        previous_plugins = self._plugins.copy()
+        previously_enabled = {name: plugin.active for name, plugin in previous_plugins.items()}
         self._load()
+
         for name, plugin in self._plugins.items():
-            if name in previous_active and plugin.active and name in self._routers:
-                # Router already mounted previously; nothing to do
-                continue
+            prev_active = previously_enabled.get(name, False)
             if plugin.active and name in self._routers:
                 self._mount_router(name, self._routers[name])
+            if name in previous_plugins:
+                try:
+                    plugin.on_reload()
+                except Exception as exc:  # pragma: no cover - best effort
+                    logger.exception("Plugin %s on_reload failed", name, exc_info=exc)
+            if plugin.active and not prev_active:
+                try:
+                    plugin.on_enable()
+                except Exception as exc:  # pragma: no cover - best effort
+                    logger.exception("Plugin %s on_enable failed", name, exc_info=exc)
+
+        for name, plugin in previous_plugins.items():
+            new_meta = self._metadata.get(name)
+            new_enabled = bool(new_meta.enabled) if new_meta else False
+            if previously_enabled.get(name) and not new_enabled:
+                try:
+                    plugin.on_disable()
+                except Exception as exc:  # pragma: no cover - best effort
+                    logger.exception("Plugin %s on_disable failed", name, exc_info=exc)
 
     def set_enabled(self, name: str, enabled: bool) -> dict[str, Any]:
         entry = next((item for item in self._entries if item.get("name") == name), None)
@@ -140,7 +213,7 @@ class PluginRegistry:
             raise KeyError(f"Plugin {name} not found")
         entry["enabled"] = bool(enabled)
         self._write_config()
-        self._load()
+        self.reload()
         return self.metadata_for(name)
 
     def update_config(self, name: str, config: dict[str, Any]) -> dict[str, Any]:
@@ -157,7 +230,7 @@ class PluginRegistry:
         )
         entry["config"] = candidate.config or {}
         self._write_config()
-        self._load()
+        self.reload()
         return self.metadata_for(name)
 
     def metadata_for(self, name: str) -> dict[str, Any]:
@@ -175,8 +248,21 @@ class PluginRegistry:
                 "config": entry.get("config", {}),
                 "enabled": bool(entry.get("enabled", False)),
             }
-        data["active"] = self.is_enabled(name)
+        plugin = self._plugins.get(name)
+        data["active"] = bool(plugin and plugin.active)
         data["hook_stats"] = self._hook_stats.get(name, {})
+        data["errors"] = list(self._errors.get(name, []))
+        data["invalid"] = name in self._invalid_entries or name not in self._plugins
+        if plugin:
+            data["hooks"] = tuple(plugin.hooks)
+            data["config"] = plugin.config
+            data["enabled"] = plugin.active
+            data["secrets"] = {
+                "required": list(plugin.required_secrets),
+                "missing": plugin.missing_secrets(),
+            }
+        else:
+            data.setdefault("secrets", {"required": [], "missing": []})
         return data
 
     @property
@@ -189,10 +275,7 @@ class PluginRegistry:
 
     def list_metadata(self) -> list[dict[str, Any]]:
         metadata: list[dict[str, Any]] = []
-        for entry in self._entries:
-            name = entry.get("name")
-            if not name:
-                continue
+        for name in self._order:
             try:
                 metadata.append(self.metadata_for(name))
             except KeyError:
