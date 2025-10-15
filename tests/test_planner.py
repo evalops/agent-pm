@@ -1,3 +1,4 @@
+import json
 import os
 from types import SimpleNamespace
 
@@ -167,6 +168,10 @@ def test_generate_plan_appends_dspy_guidance(monkeypatch):
     dspy_program._configured_program.cache_clear()
     monkeypatch.setattr(dspy_program, "compile_brief", _fake_compile_brief)
 
+    recorded_outcomes: list[str] = []
+
+    monkeypatch.setattr(planner, "record_dspy_guidance", lambda outcome: recorded_outcomes.append(outcome))
+
     captured_prompt = {}
 
     def _fake_create_plan(system_prompt, user_prompt, tools):
@@ -174,6 +179,8 @@ def test_generate_plan_appends_dspy_guidance(monkeypatch):
         return "generated plan"
 
     monkeypatch.setattr(planner, "openai_client", SimpleNamespace(create_plan=_fake_create_plan))
+
+    trace = TraceMemory()
 
     result = planner.generate_plan(
         title="Stakeholder Visibility",
@@ -185,13 +192,16 @@ def test_generate_plan_appends_dspy_guidance(monkeypatch):
         nongoals=["Rebuild tooling"],
         risks=["Time constraints"],
         users="PMs",
-        trace=TraceMemory(),
+        trace=trace,
         tools=[],
         enable_tools=False,
     )
 
     assert guidance_text in captured_prompt["user"]
     assert result["raw_plan"] == "generated plan"
+    assert recorded_outcomes == ["attempted", "succeeded"]
+    guidance_events = [json.loads(e["content"]) for e in trace.dump() if e["role"] == "meta"]
+    assert {"event": "dspy_guidance", "status": "used"} in guidance_events
 
 
 def test_generate_plan_handles_dspy_runtime_error(monkeypatch):
@@ -227,6 +237,9 @@ def test_generate_plan_handles_dspy_runtime_error(monkeypatch):
     dspy_program._configured_program.cache_clear()
     monkeypatch.setattr(dspy_program, "compile_brief", _failing_compile_brief)
 
+    recorded_outcomes: list[str] = []
+    monkeypatch.setattr(planner, "record_dspy_guidance", lambda outcome: recorded_outcomes.append(outcome))
+
     captured_prompt = {}
 
     def _fake_create_plan(system_prompt, user_prompt, tools):
@@ -234,6 +247,8 @@ def test_generate_plan_handles_dspy_runtime_error(monkeypatch):
         return "plan without guidance"
 
     monkeypatch.setattr(planner, "openai_client", SimpleNamespace(create_plan=_fake_create_plan))
+
+    trace = TraceMemory()
 
     result = planner.generate_plan(
         title="Analytics Revamp",
@@ -245,7 +260,7 @@ def test_generate_plan_handles_dspy_runtime_error(monkeypatch):
         nongoals=["Rebuild data warehouse"],
         risks=["Data quality"],
         users="Analytics",
-        trace=TraceMemory(),
+        trace=trace,
         tools=[],
         enable_tools=False,
     )
@@ -253,3 +268,114 @@ def test_generate_plan_handles_dspy_runtime_error(monkeypatch):
     assert "DSPy offline" not in captured_prompt["user"]
     assert "Guidance" not in captured_prompt["user"]
     assert result["raw_plan"] == "plan without guidance"
+    assert recorded_outcomes == ["attempted", "failed"]
+    guidance_events = [json.loads(e["content"]) for e in trace.dump() if e["role"] == "meta"]
+    assert {"event": "dspy_guidance", "status": "skipped"} in guidance_events
+
+
+def test_generate_plan_skips_guidance_when_disabled(monkeypatch):
+    monkeypatch.setattr(planner.settings, "use_dspy", False)
+    monkeypatch.setattr(planner.vector_memory, "record_prd", lambda *args, **kwargs: None)
+
+    plan = PRDPlan(
+        problem="General problem",
+        goals=["Goal"],
+        nongoals=[],
+        requirements=["Requirement"],
+        acceptance=["Acceptance"],
+        risks=["Risk"],
+        users="User",
+    )
+    monkeypatch.setattr(
+        planner,
+        "run_planner_agent",
+        lambda prompt, conversation_id=None, enable_tools=False, max_turns=None: plan,
+    )
+    monkeypatch.setattr(
+        planner,
+        "run_critic_agent",
+        lambda plan_result, conversation_id=None, max_turns=None: CriticReview(
+            status="pass", issues=[], recommendations=[], confidence=1.0
+        ),
+    )
+
+    recorded_outcomes: list[str] = []
+    monkeypatch.setattr(planner, "record_dspy_guidance", lambda outcome: recorded_outcomes.append(outcome))
+
+    trace = TraceMemory()
+
+    monkeypatch.setattr(planner, "openai_client", SimpleNamespace(create_plan=lambda *args, **kwargs: "plan"))
+
+    planner.generate_plan(
+        title="No DSPy",
+        context="",
+        constraints=None,
+        requirements=["Requirement"],
+        acceptance=["Acceptance"],
+        goals=["Goal"],
+        nongoals=[],
+        risks=["Risk"],
+        users="User",
+        trace=trace,
+        tools=[],
+        enable_tools=False,
+    )
+
+    assert recorded_outcomes == ["disabled"]
+    guidance_events = [json.loads(e["content"]) for e in trace.dump() if e["role"] == "meta"]
+    assert {"event": "dspy_guidance", "status": "skipped"} in guidance_events
+
+
+def test_generate_plan_skips_guidance_without_api_key(monkeypatch):
+    monkeypatch.setattr(planner.settings, "use_dspy", True)
+    monkeypatch.setattr(planner.settings, "openai_api_key", None)
+    monkeypatch.setattr(planner.settings, "dry_run", False)
+    monkeypatch.setattr(planner.vector_memory, "record_prd", lambda *args, **kwargs: None)
+
+    plan = PRDPlan(
+        problem="General problem",
+        goals=["Goal"],
+        nongoals=[],
+        requirements=["Requirement"],
+        acceptance=["Acceptance"],
+        risks=["Risk"],
+        users="User",
+    )
+    monkeypatch.setattr(
+        planner,
+        "run_planner_agent",
+        lambda prompt, conversation_id=None, enable_tools=False, max_turns=None: plan,
+    )
+    monkeypatch.setattr(
+        planner,
+        "run_critic_agent",
+        lambda plan_result, conversation_id=None, max_turns=None: CriticReview(
+            status="pass", issues=[], recommendations=[], confidence=1.0
+        ),
+    )
+
+    recorded_outcomes: list[str] = []
+    monkeypatch.setattr(planner, "record_dspy_guidance", lambda outcome: recorded_outcomes.append(outcome))
+
+    trace = TraceMemory()
+
+    monkeypatch.setattr(planner, "openai_client", SimpleNamespace(create_plan=lambda *args, **kwargs: "plan"))
+
+    planner.generate_plan(
+        title="Missing Key",
+        context="",
+        constraints=None,
+        requirements=["Requirement"],
+        acceptance=["Acceptance"],
+        goals=["Goal"],
+        nongoals=[],
+        risks=["Risk"],
+        users="User",
+        trace=trace,
+        tools=[],
+        enable_tools=False,
+    )
+
+    assert recorded_outcomes == ["skipped"]
+    guidance_events = [json.loads(e["content"]) for e in trace.dump() if e["role"] == "meta"]
+    assert {"event": "dspy_guidance", "status": "skipped"} in guidance_events

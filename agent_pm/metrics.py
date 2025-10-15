@@ -35,6 +35,12 @@ tool_invocations_total = Counter(
     labelnames=("tool", "result"),
 )
 
+dspy_guidance_total = Counter(
+    "dspy_guidance_total",
+    "DSPy guidance usage grouped by outcome",
+    labelnames=("outcome",),
+)
+
 
 @contextmanager
 def record_planner_request() -> None:
@@ -60,6 +66,10 @@ def record_tool_invocation(tool: str, result: str) -> None:
     tool_invocations_total.labels(tool=tool, result=result).inc()
 
 
+def record_dspy_guidance(outcome: str) -> None:
+    dspy_guidance_total.labels(outcome=outcome).inc()
+
+
 def latest_metrics() -> bytes:
     return generate_latest()
 
@@ -69,5 +79,6 @@ __all__ = [
     "record_guardrail_rejection",
     "record_revisions",
     "record_tool_invocation",
+    "record_dspy_guidance",
     "latest_metrics",
 ]

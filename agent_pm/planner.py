@@ -6,7 +6,12 @@ import logging
 from .agent_sdk import CriticReview, PRDPlan, run_critic_agent, run_planner_agent
 from .clients import openai_client
 from .memory import TraceMemory, vector_memory
-from .metrics import record_guardrail_rejection, record_planner_request, record_revisions
+from .metrics import (
+    record_dspy_guidance,
+    record_guardrail_rejection,
+    record_planner_request,
+    record_revisions,
+)
 from .settings import settings
 from .templates import PRD_TEMPLATE
 
@@ -62,6 +67,7 @@ def build_revision_prompt(
 
 def _maybe_get_dspy_guidance(title: str, context: str, constraints: list[str]) -> str:
     if not settings.use_dspy:
+        record_dspy_guidance("disabled")
         return ""
 
     if not settings.openai_api_key:
@@ -69,14 +75,22 @@ def _maybe_get_dspy_guidance(title: str, context: str, constraints: list[str]) -
             logger.info("DSPy guidance skipped: running in dry-run mode without OPENAI_API_KEY")
         else:
             logger.warning("DSPy guidance skipped: OPENAI_API_KEY is not configured")
+        record_dspy_guidance("skipped")
         return ""
 
     from . import dspy_program
 
     try:
-        return dspy_program.compile_brief(title, context, constraints)
+        record_dspy_guidance("attempted")
+        guidance = dspy_program.compile_brief(title, context, constraints)
+        if guidance:
+            record_dspy_guidance("succeeded")
+        else:
+            record_dspy_guidance("empty")
+        return guidance
     except RuntimeError as exc:  # pragma: no cover - optional dependency path
         logger.warning("DSPy guidance disabled: %s", exc)
+        record_dspy_guidance("failed")
         return ""
 
 
@@ -186,6 +200,15 @@ def generate_plan(
 
     guidance = _maybe_get_dspy_guidance(title, context, constraint_list)
 
+    trace.add(
+        "meta",
+        json.dumps(
+            {
+                "event": "dspy_guidance",
+                "status": "used" if guidance else "skipped",
+            }
+        ),
+    )
     if guidance:
         user_prompt = f"{user_prompt}\n\nGuidance:\n{guidance}"
         logger.info("DSPy guidance appended to planner prompt")
