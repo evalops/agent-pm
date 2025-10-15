@@ -35,6 +35,8 @@ logger = logging.getLogger(__name__)
 
 REVISION_LIMIT = 1
 
+GOAL_ALIGNMENT_LIMIT = 3
+
 
 def build_user_prompt(title: str, context: str, constraints: list[str] | None = None) -> str:
     constraints = constraints or []
@@ -63,6 +65,58 @@ def build_revision_prompt(
         f"Reviewer Recommendations:\n{recommendations}\n"
         "Produce an improved plan that resolves the issues explicitly."
     )
+
+
+def _collect_related_goals(title: str, goals: list[str]) -> list[dict[str, object]]:
+    if not goals:
+        return []
+
+    try:
+        df = vector_memory.to_dataframe()
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("vector memory unavailable: %s", exc)
+        return []
+
+    if df.empty:
+        return []
+
+    normalized_goals = [(goal, goal.lower()) for goal in goals if goal]
+    if not normalized_goals:
+        return []
+
+    suggestions: list[dict[str, object]] = []
+    for _, row in df.iterrows():
+        existing_title = row.get("idea")
+        if not isinstance(existing_title, str) or existing_title == title:
+            continue
+
+        prd_text = row.get("prd")
+        if not isinstance(prd_text, str):
+            continue
+        prd_text_lower = prd_text.lower()
+
+        overlapping: list[str] = []
+        for original, normalized in normalized_goals:
+            if normalized and normalized in prd_text_lower:
+                overlapping.append(original)
+
+        if not overlapping:
+            continue
+
+        suggestions.append({"idea": existing_title, "overlapping_goals": overlapping})
+        if len(suggestions) >= GOAL_ALIGNMENT_LIMIT:
+            break
+
+    return suggestions
+
+
+def _build_alignment_note(suggestions: list[dict[str, object]]) -> str:
+    lines = ["Potentially related initiatives detected:"]
+    for item in suggestions:
+        idea = item.get("idea", "Unknown initiative")
+        goals = ", ".join(item.get("overlapping_goals", []))
+        lines.append(f"- {idea}: {goals}")
+    return "\n".join(lines)
 
 
 def _maybe_get_dspy_guidance(title: str, context: str, constraints: list[str]) -> str:
@@ -209,6 +263,20 @@ def generate_plan(
             }
         ),
     )
+    alignment_suggestions = _collect_related_goals(title, goals)
+    if alignment_suggestions:
+        trace.add(
+            "meta",
+            json.dumps(
+                {
+                    "event": "goal_alignment",
+                    "matches": alignment_suggestions,
+                }
+            ),
+        )
+        alignment_note = _build_alignment_note(alignment_suggestions)
+        user_prompt = f"{user_prompt}\n\nExisting alignment signal:\n{alignment_note}"
+        logger.info("Goal alignment note appended to planner prompt")
     if guidance:
         user_prompt = f"{user_prompt}\n\nGuidance:\n{guidance}"
         logger.info("DSPy guidance appended to planner prompt")

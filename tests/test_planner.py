@@ -2,6 +2,8 @@ import json
 import os
 from types import SimpleNamespace
 
+import pandas as pd
+
 # Ensure required settings before importing planner
 os.environ.setdefault("OPENAI_API_KEY", "test-key")
 
@@ -19,6 +21,7 @@ class DummyOpenAIClient:
 def test_generate_plan_produces_status_digest(monkeypatch):
     monkeypatch.setattr(planner, "openai_client", DummyOpenAIClient())
     monkeypatch.setattr(planner.vector_memory, "record_prd", lambda *args, **kwargs: None)
+    monkeypatch.setattr(planner.vector_memory, "to_dataframe", lambda: pd.DataFrame())
     plan = PRDPlan(
         problem="Lack of visibility",
         goals=["Improve transparency"],
@@ -66,6 +69,7 @@ def test_generate_plan_produces_status_digest(monkeypatch):
 def test_generate_plan_revision_flow(monkeypatch):
     monkeypatch.setattr(planner, "openai_client", DummyOpenAIClient())
     monkeypatch.setattr(planner.vector_memory, "record_prd", lambda *args, **kwargs: None)
+    monkeypatch.setattr(planner.vector_memory, "to_dataframe", lambda: pd.DataFrame())
 
     first_plan = PRDPlan(
         problem="Ambiguous scope",
@@ -137,6 +141,7 @@ def test_generate_plan_appends_dspy_guidance(monkeypatch):
     monkeypatch.setattr(planner.settings, "openai_api_key", "test-key")
     monkeypatch.setattr(planner.settings, "dry_run", False)
     monkeypatch.setattr(planner.vector_memory, "record_prd", lambda *args, **kwargs: None)
+    monkeypatch.setattr(planner.vector_memory, "to_dataframe", lambda: pd.DataFrame())
 
     plan = PRDPlan(
         problem="Goal misalignment",
@@ -209,6 +214,7 @@ def test_generate_plan_handles_dspy_runtime_error(monkeypatch):
     monkeypatch.setattr(planner.settings, "openai_api_key", "test-key")
     monkeypatch.setattr(planner.settings, "dry_run", False)
     monkeypatch.setattr(planner.vector_memory, "record_prd", lambda *args, **kwargs: None)
+    monkeypatch.setattr(planner.vector_memory, "to_dataframe", lambda: pd.DataFrame())
 
     plan = PRDPlan(
         problem="Missing metrics",
@@ -276,6 +282,7 @@ def test_generate_plan_handles_dspy_runtime_error(monkeypatch):
 def test_generate_plan_skips_guidance_when_disabled(monkeypatch):
     monkeypatch.setattr(planner.settings, "use_dspy", False)
     monkeypatch.setattr(planner.vector_memory, "record_prd", lambda *args, **kwargs: None)
+    monkeypatch.setattr(planner.vector_memory, "to_dataframe", lambda: pd.DataFrame())
 
     plan = PRDPlan(
         problem="General problem",
@@ -331,6 +338,7 @@ def test_generate_plan_skips_guidance_without_api_key(monkeypatch):
     monkeypatch.setattr(planner.settings, "openai_api_key", None)
     monkeypatch.setattr(planner.settings, "dry_run", False)
     monkeypatch.setattr(planner.vector_memory, "record_prd", lambda *args, **kwargs: None)
+    monkeypatch.setattr(planner.vector_memory, "to_dataframe", lambda: pd.DataFrame())
 
     plan = PRDPlan(
         problem="General problem",
@@ -379,3 +387,66 @@ def test_generate_plan_skips_guidance_without_api_key(monkeypatch):
     assert recorded_outcomes == ["skipped"]
     guidance_events = [json.loads(e["content"]) for e in trace.dump() if e["role"] == "meta"]
     assert {"event": "dspy_guidance", "status": "skipped"} in guidance_events
+
+
+def test_goal_alignment_appends_note(monkeypatch):
+    monkeypatch.setattr(planner.settings, "use_dspy", False)
+    monkeypatch.setattr(planner.vector_memory, "record_prd", lambda *args, **kwargs: None)
+
+    alignment_df = pd.DataFrame(
+        [
+            {
+                "idea": "Visibility OKRs",
+                "prd": "# PRD\n## Goals\n- Improve visibility for PMs\n- Increase adoption",
+            }
+        ]
+    )
+    monkeypatch.setattr(planner.vector_memory, "to_dataframe", lambda: alignment_df)
+
+    plan = PRDPlan(
+        problem="Data fragmentation",
+        goals=["Improve visibility for PMs"],
+        nongoals=[],
+        requirements=["Ship dashboard"],
+        acceptance=["Dashboard live"],
+        risks=["Adoption"],
+        users="PM org",
+    )
+
+    monkeypatch.setattr(planner, "run_planner_agent", lambda *args, **kwargs: plan)
+    monkeypatch.setattr(
+        planner,
+        "run_critic_agent",
+        lambda *args, **kwargs: CriticReview(status="pass", issues=[], recommendations=[], confidence=0.9),
+    )
+
+    captured_prompt = {}
+
+    def _fake_create_plan(system_prompt, user_prompt, tools):
+        captured_prompt["user"] = user_prompt
+        return "plan"
+
+    monkeypatch.setattr(planner, "openai_client", SimpleNamespace(create_plan=_fake_create_plan))
+
+    trace = TraceMemory()
+
+    planner.generate_plan(
+        title="Visibility Initiative",
+        context="Need better dashboards",
+        constraints=["Launch this quarter"],
+        requirements=["Dashboard"],
+        acceptance=["Usage tracked"],
+        goals=["Improve visibility for PMs"],
+        nongoals=[],
+        risks=["Bandwidth"],
+        users="PM org",
+        trace=trace,
+        tools=[],
+        enable_tools=False,
+    )
+
+    assert "Existing alignment signal:" in captured_prompt["user"]
+    assert "Visibility OKRs" in captured_prompt["user"]
+    alignment_events = [json.loads(e["content"]) for e in trace.dump() if e["role"] == "meta"]
+    matching_events = [e for e in alignment_events if e.get("event") == "goal_alignment"]
+    assert matching_events
