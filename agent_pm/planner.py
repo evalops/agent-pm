@@ -60,6 +60,26 @@ def build_revision_prompt(
     )
 
 
+def _maybe_get_dspy_guidance(title: str, context: str, constraints: list[str]) -> str:
+    if not settings.use_dspy:
+        return ""
+
+    if not settings.openai_api_key:
+        if settings.dry_run:
+            logger.info("DSPy guidance skipped: running in dry-run mode without OPENAI_API_KEY")
+        else:
+            logger.warning("DSPy guidance skipped: OPENAI_API_KEY is not configured")
+        return ""
+
+    from . import dspy_program
+
+    try:
+        return dspy_program.compile_brief(title, context, constraints)
+    except RuntimeError as exc:  # pragma: no cover - optional dependency path
+        logger.warning("DSPy guidance disabled: %s", exc)
+        return ""
+
+
 def generate_plan(
     title: str,
     context: str,
@@ -164,17 +184,7 @@ def generate_plan(
         )
         prompt = build_revision_prompt(title, context, constraint_list, plan_result, critic_review)
 
-    guidance = ""
-    if settings.use_dspy:
-        if settings.openai_api_key:
-            from .dspy_program import compile_brief
-
-            try:
-                guidance = compile_brief(title, context, constraint_list)
-            except RuntimeError as exc:
-                logger.warning("DSPy guidance disabled: %s", exc)
-        else:
-            logger.warning("DSPy guidance skipped: OPENAI_API_KEY is not configured")
+    guidance = _maybe_get_dspy_guidance(title, context, constraint_list)
 
     if guidance:
         user_prompt = f"{user_prompt}\n\nGuidance:\n{guidance}"

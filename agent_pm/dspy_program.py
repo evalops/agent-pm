@@ -19,6 +19,8 @@ from .settings import settings
 logger = logging.getLogger(__name__)
 
 
+_configuration_error: RuntimeError | None = None
+
 if dspy is not None:  # pragma: no branch - class definitions depend on import success
     class PlannerSignature(dspy.Signature):
         title = dspy.InputField(desc="Idea title")
@@ -42,19 +44,50 @@ else:
 
 @lru_cache(maxsize=1)
 def _configured_program() -> PlannerProgram:
+    global _configuration_error
+
+    if _configuration_error is not None:
+        raise _configuration_error
+
     api_key = settings.openai_api_key
     if not api_key:
-        raise RuntimeError("OPENAI_API_KEY is required for DSPy planner")
+        err = RuntimeError("OPENAI_API_KEY is required for DSPy planner")
+        _configuration_error = err
+        raise err
 
     if dspy is None or PlannerProgram is None:
-        raise RuntimeError(
+        err = RuntimeError(
             "DSPy is not installed. Install the 'dspy-ai' package to enable planner compilation."
-        ) from _dspy_import_error
+        )
+        if _dspy_import_error is not None:
+            err.__cause__ = _dspy_import_error
+        _configuration_error = err
+        raise err
 
-    dspy.settings.configure(
-        lm=dspy.OpenAI(model="gpt-4.1-mini", api_key=api_key),
-    )
-    return PlannerProgram()
+    try:
+        dspy.settings.configure(
+            lm=dspy.OpenAI(model="gpt-4.1-mini", api_key=api_key),
+        )
+        program = PlannerProgram()
+    except Exception as exc:  # pragma: no cover - defensive
+        err = RuntimeError("Failed to configure DSPy planner")
+        err.__cause__ = exc
+        _configuration_error = err
+        raise err
+
+    return program
+
+
+_original_cache_clear = _configured_program.cache_clear
+
+
+def _cached_program_cache_clear() -> None:
+    global _configuration_error
+    _configuration_error = None
+    _original_cache_clear()
+
+
+_configured_program.cache_clear = _cached_program_cache_clear  # type: ignore[assignment]
 
 
 def compile_brief(title: str, context: str, constraints: list[str]) -> str:
