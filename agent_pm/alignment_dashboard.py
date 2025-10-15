@@ -49,6 +49,7 @@ def flatten_alignment_records(events: list[dict[str, Any]]) -> list[dict[str, An
         suggestions = event.get("suggestions", []) or [None]
         for suggestion in suggestions:
             record = {
+                "event_id": event.get("event_id"),
                 "title": event.get("title"),
                 "status": note.get("status", "unknown"),
                 "channel": note.get("channel"),
@@ -57,6 +58,8 @@ def flatten_alignment_records(events: list[dict[str, Any]]) -> list[dict[str, An
                 "overlapping_goals": None,
                 "similarity": None,
                 "slack_link": None,
+                "followup_status": (event.get("followup") or {}).get("status"),
+                "followup_recorded_at": (event.get("followup") or {}).get("recorded_at"),
             }
             if isinstance(suggestion, dict):
                 external = suggestion.get("external_context", {}) or {}
@@ -112,10 +115,42 @@ def status_counts_by_idea(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return results
 
 
+def followup_conversion(events: list[dict[str, Any]]) -> dict[str, Any]:
+    totals = Counter()
+    followups = Counter()
+    per_notification: dict[str, Counter[str]] = defaultdict(Counter)
+
+    for event in events:
+        notification_status = (event.get("notification") or {}).get("status", "unknown")
+        totals[notification_status] += 1
+        followup = event.get("followup") or {}
+        followup_status = followup.get("status")
+        if followup_status:
+            followups[followup_status] += 1
+            per_notification[notification_status][followup_status] += 1
+
+    rates: dict[str, float] = {}
+    overall_total = sum(totals.values())
+    total_followups = sum(followups.values())
+    if overall_total:
+        rates["overall"] = total_followups / overall_total
+    for status, count in totals.items():
+        if count:
+            rates[status] = sum(per_notification.get(status, {}).values()) / count
+
+    return {
+        "totals": dict(totals),
+        "followup_counts": dict(followups),
+        "per_notification": {status: dict(counter) for status, counter in per_notification.items()},
+        "rates": rates,
+    }
+
+
 __all__ = [
     "fetch_from_api",
     "load_alignment_data",
     "flatten_alignment_records",
     "status_trend_by_day",
     "status_counts_by_idea",
+    "followup_conversion",
 ]

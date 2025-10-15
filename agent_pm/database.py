@@ -124,11 +124,14 @@ class AlignmentEvent(Base):
     __tablename__ = "alignment_events"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     title: Mapped[str] = mapped_column(String(512))
     context: Mapped[str | None] = mapped_column(Text, nullable=True)
     suggestions: Mapped[list] = mapped_column(JSON, default=list)
     notification_status: Mapped[str] = mapped_column(String(64))
     notification_meta: Mapped[dict] = mapped_column(JSON, default=dict)
+    followup_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    followup_recorded_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
 

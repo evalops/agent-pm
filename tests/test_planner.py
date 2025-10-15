@@ -16,7 +16,13 @@ from agent_pm.memory import TraceMemory
 @pytest.fixture(autouse=True)
 def capture_alignment_events(monkeypatch):
     events: list[dict[str, object]] = []
-    monkeypatch.setattr(planner, "record_alignment_event", lambda event: events.append(event))
+    def _record(event: dict[str, object]) -> dict[str, object]:
+        payload = dict(event)
+        payload.setdefault("event_id", f"evt-{len(events)}")
+        events.append(payload)
+        return payload
+
+    monkeypatch.setattr(planner, "record_alignment_event", _record)
     return events
 
 
@@ -489,6 +495,7 @@ def test_goal_alignment_appends_note(monkeypatch, capture_alignment_events):
     assert recorded_statuses.count("success") >= 1
     assert capture_alignment_events
     assert capture_alignment_events[-1]["notification"]["status"] == "success"
+    assert result["alignment_event_id"]
 
 
 def test_notify_alignment_respects_configuration(monkeypatch):

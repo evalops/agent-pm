@@ -8,7 +8,9 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException
+from pydantic import BaseModel
+
+from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,7 +23,8 @@ from agent_pm.health import check_all_dependencies
 from agent_pm.logging_config import configure_logging
 from agent_pm.memory import TraceMemory
 from agent_pm.metrics import latest_metrics
-from agent_pm.alignment_log import fetch_alignment_events, summarize_alignment_events
+from agent_pm.alignment_log import fetch_alignment_events, record_alignment_followup_event, summarize_alignment_events
+from agent_pm.alignment_stream import register_subscriber, unregister_subscriber
 from agent_pm.models import BatchIdea, Idea, JiraIssuePayload, ReviewEvent, SlackDigest, TicketPlan
 from agent_pm.planner import generate_plan
 from agent_pm.prd_changelog import generate_changelog
@@ -45,6 +48,10 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Agent PM", version="0.1.0")
 _jira_lock = asyncio.Lock()
 _task_queue: TaskQueue | None = None
+
+
+class FollowupUpdate(BaseModel):
+    status: str
 
 
 @app.on_event("startup")
@@ -101,6 +108,28 @@ async def list_alignments(limit: int = 50, _admin_key: AdminKeyDep = None) -> di
     events = await fetch_alignment_events(limit)
     summary = summarize_alignment_events(events)
     return {"events": events, "summary": summary}
+
+
+@app.websocket("/alignments/ws")
+async def alignments_ws(websocket: WebSocket) -> None:
+    await websocket.accept()
+    queue = register_subscriber()
+    try:
+        while True:
+            event = await queue.get()
+            await websocket.send_json(event)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        unregister_subscriber(queue)
+
+
+@app.post("/alignments/{event_id}/followup", dependencies=[Depends(enforce_rate_limit)])
+async def alignment_followup(event_id: str, payload: FollowupUpdate, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
+    updated = await record_alignment_followup_event(event_id, payload.status)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Alignment event not found")
+    return {"event_id": event_id, "status": payload.status}
 
 
 async def _plan_impl(idea: Idea) -> dict[str, Any]:

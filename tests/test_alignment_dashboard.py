@@ -40,9 +40,11 @@ def test_load_alignment_data_fallback(monkeypatch):
 def test_flatten_alignment_records_builds_rows():
     events = [
         {
+            "event_id": "evt-1",
             "title": "Alpha",
             "created_at": "2024-01-01T00:00:00",
             "notification": {"status": "success", "channel": "pm-alerts"},
+            "followup": {"status": "ack", "recorded_at": "2024-01-02T00:00:00"},
             "suggestions": [
                 {
                     "idea": "Beta",
@@ -57,8 +59,10 @@ def test_flatten_alignment_records_builds_rows():
     records = alignment_dashboard.flatten_alignment_records(events)
 
     assert len(records) == 1
+    assert records[0]["event_id"] == "evt-1"
     assert records[0]["channel"] == "pm-alerts"
     assert records[0]["slack_link"] == "https://slack"
+    assert records[0]["followup_status"] == "ack"
 
 
 def test_status_trend_by_day_groups_counts():
@@ -92,3 +96,17 @@ def test_status_counts_by_idea_breakdown():
     assert breakdown[0]["idea"] == "Beta"
     assert breakdown[0]["success"] == 1
     assert breakdown[0]["error"] == 1
+
+
+def test_followup_conversion_metrics():
+    events = [
+        {"notification": {"status": "success"}, "followup": {"status": "ack"}},
+        {"notification": {"status": "success"}},
+        {"notification": {"status": "error"}, "followup": {"status": "dismissed"}},
+    ]
+
+    metrics = alignment_dashboard.followup_conversion(events)
+
+    assert metrics["totals"]["success"] == 2
+    assert metrics["followup_counts"]["ack"] == 1
+    assert metrics["per_notification"]["error"]["dismissed"] == 1

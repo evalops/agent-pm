@@ -476,7 +476,7 @@ def generate_plan(
     digest = build_status_digest(title, context, goals, requirements, risks)
     review_payload = critic_review.model_dump() if critic_review else None
     record_revisions(len(revision_history))
-    record_alignment_event(
+    alignment_event = record_alignment_event(
         {
             "title": title,
             "context": context,
@@ -494,6 +494,8 @@ def generate_plan(
         "related_initiatives": alignment_suggestions,
         "alignment_notification": {"status": alignment_status, **notification_meta},
         "alignment_insights": alignment_suggestions,
+        "alignment_event": alignment_event,
+        "alignment_event_id": alignment_event.get("event_id"),
     }
 
 

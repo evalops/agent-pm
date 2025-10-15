@@ -12,6 +12,7 @@ import streamlit as st
 from agent_pm.alignment_dashboard import (
     flatten_alignment_records,
     load_alignment_data,
+    followup_conversion,
     status_counts_by_idea,
     status_trend_by_day,
 )
@@ -66,6 +67,7 @@ events, summary, source = _get_alignment_data(limit)
 
 records = flatten_alignment_records(events)
 df = pd.DataFrame.from_records(records)
+conversion = followup_conversion(events)
 
 st.caption(f"Data source: {source.upper()} (last {summary.get('total_events', len(events))} events)")
 
@@ -77,11 +79,28 @@ col1.metric("Total Events", summary.get("total_events", len(events)))
 col2.metric("Success Notifications", status_counts.get("success", 0))
 col3.metric("Failures", status_counts.get("error", 0) + status_counts.get("failed", 0))
 
+st.subheader("Follow-up Conversion")
+followup_total = sum(conversion["followup_counts"].values())
+overall_rate = conversion["rates"].get("overall", 0.0)
+colf1, colf2, colf3 = st.columns(3)
+colf1.metric("Follow-ups Logged", followup_total)
+colf2.metric("Distinct Follow-up Outcomes", len(conversion["followup_counts"]))
+colf3.metric("Overall Follow-up Rate", f"{overall_rate*100:.1f}%" if overall_rate else "0%")
+
+if conversion["per_notification"]:
+    per_df = pd.DataFrame(conversion["per_notification"]).fillna(0).T
+    st.bar_chart(per_df)
+
+
 status_filter = st.multiselect("Filter by status", options=status_keys, default=status_keys)
 channel_options: list[str] = []
 if not df.empty and "channel" in df.columns:
     channel_options = sorted([value for value in df["channel"].dropna().unique() if value])
 channel_filter = st.multiselect("Filter by Slack channel", options=channel_options, default=channel_options)
+followup_options: list[str] = []
+if not df.empty and "followup_status" in df.columns:
+    followup_options = sorted([value for value in df["followup_status"].dropna().unique() if value])
+followup_filter = st.multiselect("Filter by follow-up status", options=followup_options, default=followup_options)
 search_text = st.text_input("Search by initiative or idea")
 
 if not df.empty:
@@ -89,6 +108,8 @@ if not df.empty:
         df = df[df["status"].isin(status_filter)]
     if channel_filter:
         df = df[df["channel"].isin(channel_filter)]
+    if followup_filter:
+        df = df[df["followup_status"].isin(followup_filter)]
     if search_text:
         lowered = search_text.lower()
         df = df[

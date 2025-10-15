@@ -32,3 +32,31 @@ def test_alignments_endpoint(monkeypatch):
     payload = response.json()
     assert payload["events"] == sample_events
     assert payload["summary"]["total_events"] == 1
+
+
+def test_alignments_followup_endpoint(monkeypatch):
+    client = TestClient(app_module.app)
+
+    async def fake_record(event_id: str, status: str) -> bool:
+        assert event_id == "evt-123"
+        assert status == "ack"
+        return True
+
+    monkeypatch.setattr(app_module, "record_alignment_followup_event", fake_record)
+
+    response = client.post("/alignments/evt-123/followup", json={"status": "ack"})
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ack"
+
+
+def test_alignments_websocket_stream(monkeypatch):
+    client = TestClient(app_module.app)
+
+    from agent_pm.alignment_stream import broadcast_alignment_event
+
+    with client.websocket_connect("/alignments/ws") as websocket:
+        broadcast_alignment_event({"title": "Realtime", "notification": {"status": "success"}})
+        message = websocket.receive_json()
+
+    assert message["title"] == "Realtime"

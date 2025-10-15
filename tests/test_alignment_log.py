@@ -1,3 +1,5 @@
+import asyncio
+
 from agent_pm import alignment_log
 
 
@@ -27,3 +29,29 @@ def test_get_alignment_summary(monkeypatch):
 
     assert len(events) == 1
     assert summary["status_counts"]["success"] == 1
+
+
+def test_record_alignment_event_assigns_id(tmp_path, monkeypatch):
+    temp_log = alignment_log.AlignmentLog(tmp_path / "alignments.json")
+    monkeypatch.setattr(alignment_log, "_alignment_log", temp_log)
+    monkeypatch.setattr(alignment_log, "_database_configured", lambda: False)
+
+    event = alignment_log.record_alignment_event({"title": "Alpha", "notification": {"status": "success"}})
+
+    assert event["event_id"]
+    stored = temp_log.load()
+    assert stored[0]["event_id"] == event["event_id"]
+
+
+def test_record_alignment_followup_event_updates_log(tmp_path, monkeypatch):
+    temp_log = alignment_log.AlignmentLog(tmp_path / "alignments.json")
+    monkeypatch.setattr(alignment_log, "_alignment_log", temp_log)
+    monkeypatch.setattr(alignment_log, "_database_configured", lambda: False)
+
+    event = alignment_log.record_alignment_event({"title": "Alpha", "notification": {"status": "success"}})
+
+    updated = asyncio.run(alignment_log.record_alignment_followup_event(event["event_id"], "ack"))
+
+    assert updated is True
+    stored = temp_log.load()[0]
+    assert stored["followup"]["status"] == "ack"
