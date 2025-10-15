@@ -421,6 +421,8 @@ def test_goal_alignment_appends_note(monkeypatch):
     )
 
     captured_prompt = {}
+    notifications: list[tuple[tuple[str, ...], dict[str, object]]] = []
+    monkeypatch.setattr(planner, "_notify_alignment", lambda *args, **kwargs: notifications.append((args, kwargs)))
 
     def _fake_create_plan(system_prompt, user_prompt, tools):
         captured_prompt["user"] = user_prompt
@@ -450,3 +452,4 @@ def test_goal_alignment_appends_note(monkeypatch):
     alignment_events = [json.loads(e["content"]) for e in trace.dump() if e["role"] == "meta"]
     matching_events = [e for e in alignment_events if e.get("event") == "goal_alignment"]
     assert matching_events
+    assert notifications and notifications[0][0][0] == "Visibility Initiative"

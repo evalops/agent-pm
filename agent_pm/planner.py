@@ -4,7 +4,7 @@ import json
 import logging
 
 from .agent_sdk import CriticReview, PRDPlan, run_critic_agent, run_planner_agent
-from .clients import openai_client
+from .clients import openai_client, slack_client
 from .memory import TraceMemory, vector_memory
 from .metrics import (
     record_dspy_guidance,
@@ -114,9 +114,34 @@ def _build_alignment_note(suggestions: list[dict[str, object]]) -> str:
     lines = ["Potentially related initiatives detected:"]
     for item in suggestions:
         idea = item.get("idea", "Unknown initiative")
-        goals = ", ".join(item.get("overlapping_goals", []))
-        lines.append(f"- {idea}: {goals}")
+        goals_str = ", ".join(item.get("overlapping_goals", []))
+        lines.append(f"- {idea}: {goals_str}")
     return "\n".join(lines)
+
+
+def _notify_alignment(title: str, alignment_note: str) -> None:
+    if not alignment_note:
+        return
+
+    if settings.dry_run and not slack_client.enabled:
+        return
+
+    message = f"*Goal alignment surfaced for*: {title}\n{alignment_note}"
+
+    try:
+        import asyncio
+
+        async def _post() -> None:
+            await slack_client.post_digest(message)
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            asyncio.run(_post())
+        else:
+            loop.create_task(_post())
+    except Exception as exc:  # pragma: no cover - logging for observability
+        logger.warning("Failed to dispatch goal alignment notification: %s", exc)
 
 
 def _maybe_get_dspy_guidance(title: str, context: str, constraints: list[str]) -> str:
@@ -276,6 +301,7 @@ def generate_plan(
         )
         alignment_note = _build_alignment_note(alignment_suggestions)
         user_prompt = f"{user_prompt}\n\nExisting alignment signal:\n{alignment_note}"
+        _notify_alignment(title, alignment_note)
         logger.info("Goal alignment note appended to planner prompt")
     if guidance:
         user_prompt = f"{user_prompt}\n\nGuidance:\n{guidance}"
