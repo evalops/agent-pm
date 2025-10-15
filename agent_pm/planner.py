@@ -164,13 +164,21 @@ def generate_plan(
         )
         prompt = build_revision_prompt(title, context, constraint_list, plan_result, critic_review)
 
+    guidance = ""
     if settings.use_dspy:
-        from .dspy_program import compile_brief
+        if settings.openai_api_key:
+            from .dspy_program import compile_brief
 
-        guidance = compile_brief(title, context, constraint_list)
-        if guidance:
-            user_prompt = f"{user_prompt}\n\nGuidance:\n{guidance}"
-            logger.info("DSPy guidance appended to planner prompt")
+            try:
+                guidance = compile_brief(title, context, constraint_list)
+            except RuntimeError as exc:
+                logger.warning("DSPy guidance disabled: %s", exc)
+        else:
+            logger.warning("DSPy guidance skipped: OPENAI_API_KEY is not configured")
+
+    if guidance:
+        user_prompt = f"{user_prompt}\n\nGuidance:\n{guidance}"
+        logger.info("DSPy guidance appended to planner prompt")
     trace.add("user", user_prompt)
     text = openai_client.create_plan(SYSTEM_PROMPT, user_prompt, tools=tools)
     trace.add("assistant", text)
