@@ -10,6 +10,7 @@ from .agent_sdk import CriticReview, PRDPlan, run_critic_agent, run_planner_agen
 from .clients import openai_client, slack_client
 from .memory import TraceMemory, vector_memory
 from .metrics import (
+    record_alignment_notification,
     record_dspy_guidance,
     record_guardrail_rejection,
     record_planner_request,
@@ -188,24 +189,33 @@ def _mark_alignment_notified(pairs: list[tuple[str, str]]) -> list[tuple[str, st
     return new_pairs
 
 
-def _notify_alignment(title: str, alignment_note: str, suggestions: list[dict[str, object]]) -> None:
+def _notify_alignment(title: str, alignment_note: str, suggestions: list[dict[str, object]]) -> str:
     if not alignment_note:
-        return
+        status = "skipped"
+        record_alignment_notification(status)
+        return status
 
     if not settings.goal_alignment_notify:
-        return
+        status = "disabled"
+        record_alignment_notification(status)
+        return status
 
     if not slack_client.enabled:
         if settings.dry_run:
-            return
-        logger.info("Slack client disabled; skipping goal alignment notification")
-        return
+            status = "dry_run"
+        else:
+            logger.info("Slack client disabled; skipping goal alignment notification")
+            status = "disabled"
+        record_alignment_notification(status)
+        return status
 
     pairs = [(title, str(item.get("idea"))) for item in suggestions if item.get("idea")]
     new_pairs = _mark_alignment_notified(pairs)
     if not new_pairs:
         logger.info("Skipping duplicate goal alignment notification for %s", title)
-        return
+        status = "duplicate"
+        record_alignment_notification(status)
+        return status
 
     message = f"*Goal alignment surfaced for*: {title}\n{alignment_note}"
 
@@ -225,12 +235,22 @@ def _notify_alignment(title: str, alignment_note: str, suggestions: list[dict[st
             def _log_completion(task: asyncio.Task) -> None:
                 if task.cancelled():  # pragma: no cover - defensive
                     logger.info("Goal alignment notification task cancelled")
+                    record_alignment_notification("cancelled")
                 elif (exc := task.exception()) is not None:
                     logger.warning("Goal alignment notification failed: %s", exc)
+                    record_alignment_notification("error")
+                else:
+                    record_alignment_notification("success_async")
 
             task.add_done_callback(_log_completion)
+        status = "success"
+        record_alignment_notification(status)
+        return status
     except Exception as exc:  # pragma: no cover - logging for observability
         logger.warning("Failed to dispatch goal alignment notification: %s", exc)
+        status = "error"
+        record_alignment_notification(status)
+        return status
 
 
 def _maybe_get_dspy_guidance(title: str, context: str, constraints: list[str]) -> str:
@@ -378,6 +398,7 @@ def generate_plan(
         ),
     )
     alignment_suggestions = _collect_related_goals(title, goals)
+    alignment_status = "none"
     if alignment_suggestions:
         trace.add(
             "meta",
@@ -390,8 +411,10 @@ def generate_plan(
         )
         alignment_note = _build_alignment_note(alignment_suggestions)
         user_prompt = f"{user_prompt}\n\nExisting alignment signal:\n{alignment_note}"
-        _notify_alignment(title, alignment_note, alignment_suggestions)
+        alignment_status = _notify_alignment(title, alignment_note, alignment_suggestions)
         logger.info("Goal alignment note appended to planner prompt")
+    else:
+        record_alignment_notification("none")
     if guidance:
         user_prompt = f"{user_prompt}\n\nGuidance:\n{guidance}"
         logger.info("DSPy guidance appended to planner prompt")
@@ -408,6 +431,7 @@ def generate_plan(
         requirements=requirements,
         acceptance=acceptance,
         risks=risks,
+        related_initiatives=alignment_suggestions,
     )
     vector_memory.record_prd(title, prd)
     digest = build_status_digest(title, context, goals, requirements, risks)
@@ -419,6 +443,8 @@ def generate_plan(
         "status_digest": digest,
         "critic_review": review_payload,
         "revision_history": revision_history,
+        "related_initiatives": alignment_suggestions,
+        "alignment_notification": alignment_status,
     }
 
 

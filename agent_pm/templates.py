@@ -28,6 +28,11 @@ PRD_TEMPLATE = Template(
 
 ## Risks & Open Questions
 {% for r in risks %}- {{ r }}{% endfor %}
+
+{% if related_initiatives %}
+## Related Initiatives
+{% for item in related_initiatives %}- {{ item.idea }}{% if item.similarity is defined %} (similarity {{ '%.2f' | format(item.similarity) }}){% endif %}: {{ ", ".join(item.overlapping_goals) }}{% endfor %}
+{% endif %}
 """
 )
 

@@ -41,6 +41,12 @@ dspy_guidance_total = Counter(
     labelnames=("outcome",),
 )
 
+alignment_notification_total = Counter(
+    "alignment_notification_total",
+    "Goal alignment notifications grouped by status",
+    labelnames=("status",),
+)
+
 
 @contextmanager
 def record_planner_request() -> None:
@@ -70,6 +76,10 @@ def record_dspy_guidance(outcome: str) -> None:
     dspy_guidance_total.labels(outcome=outcome).inc()
 
 
+def record_alignment_notification(status: str) -> None:
+    alignment_notification_total.labels(status=status).inc()
+
+
 def latest_metrics() -> bytes:
     return generate_latest()
 
@@ -80,5 +90,6 @@ __all__ = [
     "record_revisions",
     "record_tool_invocation",
     "record_dspy_guidance",
+    "record_alignment_notification",
     "latest_metrics",
 ]

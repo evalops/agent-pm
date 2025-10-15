@@ -3,7 +3,6 @@ import os
 from types import SimpleNamespace
 
 import pandas as pd
-import pytest
 
 # Ensure required settings before importing planner
 os.environ.setdefault("OPENAI_API_KEY", "test-key")
@@ -435,11 +434,15 @@ def test_goal_alignment_appends_note(monkeypatch):
 
     captured_prompt = {}
     notifications: list[tuple[tuple[str, ...], dict[str, object]]] = []
-    monkeypatch.setattr(
-        planner,
-        "_notify_alignment",
-        lambda *args, **kwargs: notifications.append((args, kwargs)),
-    )
+    recorded_statuses: list[str] = []
+    monkeypatch.setattr(planner, "record_alignment_notification", lambda status: recorded_statuses.append(status))
+
+    def _fake_notify(*args, **kwargs):
+        notifications.append((args, kwargs))
+        planner.record_alignment_notification("success")
+        return "success"
+
+    monkeypatch.setattr(planner, "_notify_alignment", _fake_notify)
 
     def _fake_create_plan(system_prompt, user_prompt, tools):
         captured_prompt["user"] = user_prompt
@@ -449,7 +452,7 @@ def test_goal_alignment_appends_note(monkeypatch):
 
     trace = TraceMemory()
 
-    planner.generate_plan(
+    result = planner.generate_plan(
         title="Visibility Initiative",
         context="Need better dashboards",
         constraints=["Launch this quarter"],
@@ -471,6 +474,11 @@ def test_goal_alignment_appends_note(monkeypatch):
     assert matching_events
     assert notifications and notifications[0][0][0] == "Visibility Initiative"
 
+    assert result["related_initiatives"]
+    assert result["alignment_notification"] == "success"
+    assert "## Related Initiatives" in result["prd_markdown"]
+    assert recorded_statuses.count("success") >= 1
+
 
 def test_notify_alignment_respects_configuration(monkeypatch):
     planner._alignment_history.clear()
@@ -489,9 +497,14 @@ def test_notify_alignment_respects_configuration(monkeypatch):
 
     monkeypatch.setattr(planner.slack_client, "post_digest", _fake_post)
 
-    planner._notify_alignment("Test Initiative", "Note", [{"idea": "Other"}])
+    statuses: list[str] = []
+    monkeypatch.setattr(planner, "record_alignment_notification", lambda status: statuses.append(status))
+
+    status = planner._notify_alignment("Test Initiative", "Note", [{"idea": "Other"}])
 
     assert calls == []
+    assert status == "disabled"
+    assert "disabled" in statuses
 
 
 def test_notify_alignment_deduplicates_pairs(monkeypatch):
@@ -511,7 +524,13 @@ def test_notify_alignment_deduplicates_pairs(monkeypatch):
 
     monkeypatch.setattr(planner.slack_client, "post_digest", _fake_post)
 
-    planner._notify_alignment("Test Initiative", "Note", [{"idea": "Other"}])
-    planner._notify_alignment("Test Initiative", "Another note", [{"idea": "Other"}])
+    statuses: list[str] = []
+    monkeypatch.setattr(planner, "record_alignment_notification", lambda status: statuses.append(status))
+
+    first = planner._notify_alignment("Test Initiative", "Note", [{"idea": "Other"}])
+    second = planner._notify_alignment("Test Initiative", "Another note", [{"idea": "Other"}])
 
     assert len(calls) == 1
+    assert first == "success"
+    assert second == "duplicate"
+    assert "duplicate" in statuses
