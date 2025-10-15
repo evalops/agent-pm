@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional, Sequence
 
 from fastapi import APIRouter, HTTPException
 
-from ..settings import settings
+from .secrets import resolve_secret
 
 if TYPE_CHECKING:  # pragma: no cover - type hints only
     from .registry import PluginRegistry
@@ -35,6 +34,7 @@ class PluginBase:
         self.config = config or {}
         self.registry: "PluginRegistry | None" = None
         self.active: bool = True
+        self._secret_overrides: dict[str, Any] = dict(self.config.get("secrets", {}))
 
     def get_router(self) -> tuple[APIRouter, str] | None:  # pragma: no cover - default has no routes
         return None
@@ -66,14 +66,15 @@ class PluginBase:
     def missing_secrets(self) -> list[str]:
         missing: list[str] = []
         for key in self.required_secrets:
-            if os.getenv(key):
-                continue
-            attr_name = key.lower()
-            value = getattr(settings, attr_name, None)
-            if value:
-                continue
-            missing.append(key)
+            if self.get_secret(key) in (None, ""):
+                missing.append(key)
         return missing
+
+    def get_secret(self, key: str, default: Any | None = None) -> Any | None:
+        value = resolve_secret(key, plugin_name=self.name, overrides=self._secret_overrides)
+        if value in (None, ""):
+            return default
+        return value
 
     def on_enable(self) -> None:  # pragma: no cover - overridable hook
         return None

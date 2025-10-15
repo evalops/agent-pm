@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from datetime import datetime
+from typing import Any
 
 import pandas as pd
 import streamlit as st
+import requests
 
 from agent_pm.alignment_dashboard import (
     flatten_alignment_records,
@@ -78,6 +81,24 @@ st.caption(f"Data source: {source.upper()} (last {summary.get('total_events', le
 @st.cache_data(ttl=60)
 def _get_plugin_registry(api_url: str, api_key: str | None):
     return load_plugin_metadata(api_url=api_url or None, api_key=api_key or None)
+
+
+def _plugin_api_request(
+    api_url: str,
+    api_key: str | None,
+    method: str,
+    path: str,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if not api_url:
+        raise ValueError("Plugin API URL is required for this action")
+    url = api_url.rstrip("/") + path
+    headers = {"Accept": "application/json"}
+    if api_key:
+        headers["X-API-Key"] = api_key
+    response = requests.request(method, url, json=payload, headers=headers, timeout=10)
+    response.raise_for_status()
+    return response.json()
 
 
 plugins, plugin_source = _get_plugin_registry(plugin_api.strip(), plugin_api_key.strip())
@@ -179,37 +200,136 @@ st.subheader("Plugin Registry")
 if not plugins:
     st.info("No plugin registry data available.")
 else:
-    plugin_rows = []
-    stats_rows = []
+    summary_rows: list[dict[str, Any]] = []
+    hook_rows: list[dict[str, Any]] = []
+    history_lookup: dict[str, dict[str, list[dict[str, Any]]]] = {}
+
     for item in plugins:
-        plugin_rows.append(
+        stats = item.get("hook_stats") or {}
+        total_invocations = sum(entry.get("invocations", 0) for entry in stats.values())
+        total_failures = sum(entry.get("failures", 0) for entry in stats.values())
+        total_duration = sum(entry.get("total_duration_ms", 0.0) for entry in stats.values())
+        avg_duration = round(total_duration / total_invocations, 3) if total_invocations else 0.0
+        summary_rows.append(
             {
                 "name": item.get("name"),
                 "enabled": item.get("enabled"),
                 "active": item.get("active"),
-                "hooks": ", ".join(item.get("hooks", [])),
+                "invocations": total_invocations,
+                "failures": total_failures,
+                "avg_duration_ms": avg_duration,
                 "missing_secrets": ", ".join(item.get("secrets", {}).get("missing", [])),
                 "errors": "; ".join(item.get("errors", [])),
                 "invalid": item.get("invalid", False),
             }
         )
-        for hook, counts in (item.get("hook_stats") or {}).items():
-            stats_rows.append(
+        for hook, counts in stats.items():
+            hook_rows.append(
                 {
                     "plugin": item.get("name"),
                     "hook": hook,
                     "invocations": counts.get("invocations", 0),
                     "failures": counts.get("failures", 0),
+                    "avg_duration_ms": counts.get("avg_duration_ms", 0.0),
+                    "last_duration_ms": counts.get("last_duration_ms", 0.0),
                 }
             )
+        history_lookup[item.get("name")] = {
+            hook: list(entries)
+            for hook, entries in (item.get("hook_history") or {}).items()
+        }
 
-    st.dataframe(pd.DataFrame(plugin_rows), use_container_width=True)
+    if summary_rows:
+        summary_df = pd.DataFrame(summary_rows)
+        st.dataframe(summary_df, use_container_width=True)
 
-    if stats_rows:
-        stats_df = pd.DataFrame(stats_rows)
-        st.dataframe(stats_df, use_container_width=True)
-        pivot = stats_df.pivot_table(index="hook", columns="plugin", values="invocations", fill_value=0)
+    if hook_rows:
+        hook_df = pd.DataFrame(hook_rows)
+        st.dataframe(hook_df, use_container_width=True)
+        pivot = hook_df.pivot_table(index="hook", columns="plugin", values="invocations", fill_value=0)
         st.bar_chart(pivot)
+
+    st.subheader("Hook Timeline")
+    plugin_names = [row["name"] for row in summary_rows] if summary_rows else []
+    if plugin_names:
+        selected_plugin = st.selectbox("Plugin", plugin_names)
+        hook_history = history_lookup.get(selected_plugin, {})
+        if not hook_history:
+            st.info("No hook history recorded for this plugin yet.")
+        else:
+            hook_options = list(hook_history.keys())
+            selected_hook = st.selectbox("Hook", hook_options, key=f"hook_{selected_plugin}")
+            entries = hook_history.get(selected_hook, [])
+            if entries:
+                history_df = pd.DataFrame(entries)
+                if not history_df.empty and "timestamp" in history_df:
+                    history_df["timestamp"] = pd.to_datetime(history_df["timestamp"], errors="coerce")
+                    history_df = history_df.dropna(subset=["timestamp"])
+                    if not history_df.empty:
+                        chart_df = history_df.set_index("timestamp")["duration_ms"]
+                        st.line_chart(chart_df)
+                st.dataframe(history_df, use_container_width=True)
+            else:
+                st.info("No entries for the selected hook yet.")
+
+    if plugin_api:
+        st.subheader("Plugin Administration")
+        st.caption("Actions below require Plugin API access.")
+        for item in plugins:
+            plugin_name = item.get("name")
+            with st.expander(f"{plugin_name} controls", expanded=False):
+                st.write(f"**Description:** {item.get('description', 'n/a')}")
+                st.write(f"**Hooks:** {', '.join(item.get('hooks', [])) or 'none'}")
+                st.write(
+                    f"**Missing secrets:** {', '.join(item.get('secrets', {}).get('missing', [])) or 'none'}"
+                )
+                config_json = json.dumps(item.get("config") or {}, indent=2)
+                with st.form(f"config_form_{plugin_name}"):
+                    updated_config = st.text_area("Config (JSON)", value=config_json, height=220)
+                    submitted = st.form_submit_button("Update Config")
+                    if submitted:
+                        try:
+                            parsed_config = json.loads(updated_config) if updated_config.strip() else {}
+                        except json.JSONDecodeError as exc:
+                            st.error(f"Invalid JSON: {exc}")
+                        else:
+                            try:
+                                _plugin_api_request(
+                                    plugin_api,
+                                    plugin_api_key,
+                                    "POST",
+                                    f"/plugins/{plugin_name}/config",
+                                    {"config": parsed_config},
+                                )
+                            except Exception as exc:  # pragma: no cover - UI feedback
+                                st.error(f"Failed to update config: {exc}")
+                            else:
+                                st.success("Config updated.")
+                                _get_plugin_registry.clear()
+                                st.experimental_rerun()
+                cols = st.columns(2)
+                if cols[0].button("Reload plugin", key=f"reload_{plugin_name}"):
+                    try:
+                        _plugin_api_request(plugin_api, plugin_api_key, "POST", f"/plugins/{plugin_name}/reload")
+                    except Exception as exc:  # pragma: no cover - UI feedback
+                        st.error(f"Reload failed: {exc}")
+                    else:
+                        st.success("Plugin reloaded.")
+                        _get_plugin_registry.clear()
+                        st.experimental_rerun()
+                toggle_label = "Disable plugin" if item.get("enabled") else "Enable plugin"
+                toggle_path = "/disable" if item.get("enabled") else "/enable"
+                if cols[1].button(toggle_label, key=f"toggle_{plugin_name}"):
+                    try:
+                        _plugin_api_request(plugin_api, plugin_api_key, "POST", f"/plugins/{plugin_name}{toggle_path}")
+                    except Exception as exc:
+                        st.error(f"Toggle failed: {exc}")
+                    else:
+                        st.success(f"Plugin {toggle_label.split()[0].lower()}d.")
+                        _get_plugin_registry.clear()
+                        st.experimental_rerun()
+    else:
+        st.caption("Set PLUGINS_API_URL to enable plugin administration controls.")
 
 st.caption("Plugin data source: %s" % plugin_source.upper())
 st.caption("Last refreshed: %s" % datetime.utcnow().isoformat())

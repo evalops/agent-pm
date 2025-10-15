@@ -25,10 +25,42 @@ class TicketAutomationPlugin(PluginBase):
         self.plan_contexts: list[dict[str, Any]] = []
         self.alignment_events: list[str] = []
         self.export_events: list[dict[str, Any]] = []
+        self._previous_credentials = {
+            "base_url": jira_client.base_url,
+            "email": jira_client.email,
+            "api_token": jira_client.api_token,
+        }
+        self._credentials = self._previous_credentials.copy()
 
     @property
     def enabled(self) -> bool:
-        return self.is_enabled and bool(self.project_key)
+        if self.missing_secrets():
+            return False
+        return self.is_enabled and bool(self.project_key and jira_client.enabled)
+
+    def on_enable(self) -> None:
+        base_url = self.get_secret("JIRA_BASE_URL") or jira_client.base_url
+        email = self.get_secret("JIRA_EMAIL") or jira_client.email
+        token = self.get_secret("JIRA_API_TOKEN") or jira_client.api_token
+        if base_url:
+            jira_client.base_url = base_url
+        if email:
+            jira_client.email = email
+        if token:
+            jira_client.api_token = token
+        self._credentials = {
+            "base_url": jira_client.base_url,
+            "email": jira_client.email,
+            "api_token": jira_client.api_token,
+        }
+
+    def on_disable(self) -> None:
+        jira_client.base_url = self._previous_credentials["base_url"]
+        jira_client.email = self._previous_credentials["email"]
+        jira_client.api_token = self._previous_credentials["api_token"]
+
+    def on_reload(self) -> None:
+        self.on_enable()
 
     def pre_plan(self, context: dict[str, Any], **kwargs: Any) -> None:
         self.plan_contexts.append(dict(context))

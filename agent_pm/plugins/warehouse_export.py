@@ -17,9 +17,18 @@ class WarehouseExportPlugin(PluginBase):
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         super().__init__(config)
+        self._prepare_path()
+
+    def _prepare_path(self) -> None:
         path = self.config.get("path", "./data/plugin_events.jsonl")
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+
+    def on_enable(self) -> None:
+        self._prepare_path()
+
+    def on_reload(self) -> None:
+        self._prepare_path()
 
     def _write_record(self, record: dict[str, Any]) -> None:
         record.setdefault("timestamp", datetime.utcnow().isoformat())

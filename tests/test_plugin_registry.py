@@ -21,6 +21,10 @@ def test_ticket_automation_plugin_creates_issue(monkeypatch, tmp_path):
     ]
     config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
 
+    monkeypatch.setenv("JIRA_BASE_URL", "https://example.atlassian.net")
+    monkeypatch.setenv("JIRA_EMAIL", "bot@example.com")
+    monkeypatch.setenv("JIRA_API_TOKEN", "token")
+
     registry = PluginRegistry(config_path)
     plugin = registry.get("ticket_automation")
     assert plugin is not None
@@ -134,7 +138,9 @@ def test_plugin_hook_metrics(monkeypatch, tmp_path):
     stats = metadata["hook_stats"]["post_plan"]
     assert stats["failures"] == 1
     assert stats["invocations"] == 1
-    assert metadata["errors"] == []
+    assert any("boom" in error for error in metadata["errors"])
+    history = metadata["hook_history"].get("post_plan")
+    assert history and history[-1]["status"] == "error"
 
 
 def test_slack_and_warehouse_plugins(monkeypatch, tmp_path):
@@ -203,3 +209,101 @@ def test_invalid_plugin_configuration_surfaces_errors(tmp_path):
     assert invalid_entry["errors"]
     assert invalid_entry["enabled"] is False
     assert invalid_entry["invalid"] is True
+
+
+def test_slack_plugin_uses_env_secrets(monkeypatch):
+    from agent_pm.clients.slack_client import slack_client
+    from agent_pm.plugins.slack_notifications import SlackAlertsPlugin
+
+    original_token = slack_client.token
+    original_channel = slack_client.channel
+    monkeypatch.setenv("SLACK_BOT_TOKEN", "x-token")
+    monkeypatch.setenv("SLACK_STATUS_CHANNEL", "alerts")
+
+    plugin = SlackAlertsPlugin({})
+    slack_client.token = None
+    slack_client.channel = None
+    plugin.on_enable()
+
+    assert slack_client.token == "x-token"
+    assert plugin.channel == "alerts"
+
+    plugin.on_disable()
+    assert slack_client.token == original_token
+    assert slack_client.channel == original_channel
+
+
+def test_ticket_plugin_on_enable_updates_client(monkeypatch):
+    from agent_pm.clients.jira_client import jira_client
+    from agent_pm.plugins.ticket_automation import TicketAutomationPlugin
+
+    original = (jira_client.base_url, jira_client.email, jira_client.api_token)
+    monkeypatch.setenv("JIRA_BASE_URL", "https://example.atlassian.net")
+    monkeypatch.setenv("JIRA_EMAIL", "user@example.com")
+    monkeypatch.setenv("JIRA_API_TOKEN", "secret-token")
+    plugin = TicketAutomationPlugin({"project_key": "DEMO"})
+    jira_client.base_url = None
+    jira_client.email = None
+    jira_client.api_token = None
+    plugin.on_enable()
+
+    assert jira_client.base_url == "https://example.atlassian.net"
+    assert jira_client.email == "user@example.com"
+    assert jira_client.api_token == "secret-token"
+
+    plugin.on_disable()
+    assert (jira_client.base_url, jira_client.email, jira_client.api_token) == original
+
+
+def test_registry_discover_plugins(monkeypatch, tmp_path):
+    from agent_pm.plugins.slack_notifications import SlackAlertsPlugin
+
+    class FakeEntryPoint:
+        def __init__(self, name, value, obj):
+            self.name = name
+            self.value = value
+            self._obj = obj
+            self.dist = type("Dist", (), {"name": "fakepkg"})()
+
+        def load(self):
+            return self._obj
+
+    class FakeEntryPoints(list):
+        def select(self, **kwargs):
+            if kwargs.get("group") == "agent_pm.plugins":
+                return self
+            return []
+
+    monkeypatch.setattr(
+        "agent_pm.plugins.registry.metadata.entry_points",
+        lambda: FakeEntryPoints(
+            [FakeEntryPoint("demo", "agent_pm.plugins.slack_notifications:SlackAlertsPlugin", SlackAlertsPlugin)]
+        ),
+    )
+
+    registry = PluginRegistry(tmp_path / "plugins.yaml")
+    discovered = registry.discover_plugins()
+
+    assert discovered
+    entry = discovered[0]
+    assert entry["entry_point"] == "demo"
+    assert entry["module"] == "agent_pm.plugins.slack_notifications:SlackAlertsPlugin"
+    assert entry["plugin_name"] == "slack_followup_alerts"
+
+
+def test_install_and_reload_plugin(tmp_path):
+    config_path = tmp_path / "plugins.yaml"
+    registry = PluginRegistry(config_path)
+
+    metadata = registry.install_plugin(
+        "agent_pm.plugins.warehouse_export:WarehouseExportPlugin",
+        enabled=True,
+        config={"path": str(tmp_path / "events.jsonl")},
+    )
+
+    assert metadata["name"] == "warehouse_export"
+    assert metadata["enabled"] is True
+    assert metadata["config"]["path"].endswith("events.jsonl")
+
+    reloaded = registry.reload_plugin("warehouse_export")
+    assert reloaded["name"] == "warehouse_export"

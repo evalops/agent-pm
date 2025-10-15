@@ -121,3 +121,86 @@ def test_plugin_config_update_endpoint(monkeypatch, tmp_path, plugin_config_tmp)
     assert metadata["config"]["path"] == new_path
 
     app.dependency_overrides.clear()
+
+
+def test_plugins_discover_endpoint(monkeypatch):
+    auth.settings = settings
+    app.dependency_overrides[APIKeyDep] = lambda: "test"
+    app.dependency_overrides[AdminKeyDep] = lambda: "test"
+    client = TestClient(app)
+
+    monkeypatch.setattr(
+        plugin_registry,
+        "discover_plugins",
+        lambda: [{"entry_point": "demo", "module": "demo:Plugin", "plugin_name": "demo"}],
+    )
+
+    response = client.get("/plugins/discover")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["entry_points"][0]["entry_point"] == "demo"
+
+    app.dependency_overrides.clear()
+
+
+def test_plugins_reload_plugin_endpoint(monkeypatch):
+    auth.settings = settings
+    app.dependency_overrides[APIKeyDep] = lambda: "test"
+    app.dependency_overrides[AdminKeyDep] = lambda: "test"
+    client = TestClient(app)
+
+    called: dict[str, Any] = {}
+
+    def fake_reload(name: str):
+        called["name"] = name
+        return {"name": name, "enabled": True, "config": {}, "hook_stats": {}}
+
+    monkeypatch.setattr(plugin_registry, "reload_plugin", fake_reload)
+
+    response = client.post("/plugins/demo/reload")
+    assert response.status_code == 200
+    assert called["name"] == "demo"
+
+    app.dependency_overrides.clear()
+
+
+def test_plugins_install_endpoint_from_entry_point(monkeypatch):
+    auth.settings = settings
+    app.dependency_overrides[APIKeyDep] = lambda: "test"
+    app.dependency_overrides[AdminKeyDep] = lambda: "test"
+    client = TestClient(app)
+
+    monkeypatch.setattr(
+        plugin_registry,
+        "discover_plugins",
+        lambda: [
+            {
+                "entry_point": "demo",
+                "module": "agent_pm.plugins.warehouse_export:WarehouseExportPlugin",
+                "plugin_name": "warehouse_export",
+                "description": "Demo plugin",
+                "hooks": ["post_ticket_export"],
+            }
+        ],
+    )
+
+    captured: dict[str, Any] = {}
+
+    def fake_install(module_ref: str, **kwargs: Any) -> dict[str, Any]:
+        captured["module"] = module_ref
+        captured["kwargs"] = kwargs
+        return {"name": kwargs.get("name", "warehouse_export"), "enabled": kwargs.get("enabled", False), "config": kwargs.get("config", {})}
+
+    monkeypatch.setattr(plugin_registry, "install_plugin", fake_install)
+
+    response = client.post(
+        "/plugins/install",
+        json={"entry_point": "demo", "enabled": True, "config": {"path": "./demo.jsonl"}},
+    )
+    assert response.status_code == 200
+    assert captured["module"] == "agent_pm.plugins.warehouse_export:WarehouseExportPlugin"
+    assert captured["kwargs"]["enabled"] is True
+    assert captured["kwargs"]["config"]["path"] == "./demo.jsonl"
+    assert response.json()["plugin"]["name"] == "warehouse_export"
+
+    app.dependency_overrides.clear()

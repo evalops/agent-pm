@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import PlainTextResponse
@@ -152,6 +152,11 @@ async def list_plugins_endpoint(_admin_key: AdminKeyDep = None) -> dict[str, Any
     return {"plugins": plugin_registry.list_metadata()}
 
 
+@app.get("/plugins/discover", dependencies=[Depends(enforce_rate_limit)])
+async def discover_plugins_endpoint(_admin_key: AdminKeyDep = None) -> dict[str, Any]:
+    return {"entry_points": plugin_registry.discover_plugins()}
+
+
 @app.post("/plugins/{name}/enable", dependencies=[Depends(enforce_rate_limit)])
 async def enable_plugin(name: str, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
     try:
@@ -176,8 +181,34 @@ async def reload_plugins(_admin_key: AdminKeyDep = None) -> dict[str, Any]:
     return {"plugins": plugin_registry.list_metadata()}
 
 
+@app.post("/plugins/{name}/reload", dependencies=[Depends(enforce_rate_limit)])
+async def reload_plugin(name: str, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
+    try:
+        metadata = plugin_registry.reload_plugin(name)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"plugin": metadata}
+
+
 class PluginConfigUpdate(BaseModel):
     config: dict[str, Any]
+
+
+class PluginInstallRequest(BaseModel):
+    module: str | None = None
+    entry_point: str | None = None
+    name: str | None = None
+    enabled: bool = False
+    config: dict[str, Any] | None = None
+    description: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_source(self) -> "PluginInstallRequest":
+        if not self.module and not self.entry_point:
+            raise ValueError("module or entry_point is required")
+        return self
 
 
 @app.post("/plugins/{name}/config", dependencies=[Depends(enforce_rate_limit)])
@@ -186,6 +217,42 @@ async def update_plugin_config(name: str, update: PluginConfigUpdate, _admin_key
         metadata = plugin_registry.update_config(name, update.config)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"plugin": metadata}
+
+
+@app.post("/plugins/install", dependencies=[Depends(enforce_rate_limit)])
+async def install_plugin_endpoint(request: PluginInstallRequest, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
+    module_ref = request.module
+    plugin_name = request.name
+    description = request.description
+    hooks = None
+
+    if request.entry_point and not module_ref:
+        catalogue = {item["entry_point"]: item for item in plugin_registry.discover_plugins()}
+        info = catalogue.get(request.entry_point)
+        if info is None:
+            raise HTTPException(status_code=404, detail=f"Entry point {request.entry_point} not found")
+        module_ref = info["module"]
+        if plugin_name is None:
+            plugin_name = info.get("plugin_name")
+        if description is None and info.get("description"):
+            description = info.get("description")
+        hooks = info.get("hooks")
+
+    if not module_ref:
+        raise HTTPException(status_code=400, detail="Unable to determine module reference for plugin")
+
+    try:
+        metadata = plugin_registry.install_plugin(
+            module_ref,
+            name=plugin_name,
+            enabled=request.enabled,
+            config=request.config or {},
+            description=description,
+            hooks=hooks,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"plugin": metadata}
