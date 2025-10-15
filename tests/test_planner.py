@@ -3,6 +3,7 @@ import os
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 
 # Ensure required settings before importing planner
 os.environ.setdefault("OPENAI_API_KEY", "test-key")
@@ -10,6 +11,13 @@ os.environ.setdefault("OPENAI_API_KEY", "test-key")
 from agent_pm import dspy_program, planner
 from agent_pm.agent_sdk import CriticReview, PRDPlan
 from agent_pm.memory import TraceMemory
+
+
+@pytest.fixture(autouse=True)
+def capture_alignment_events(monkeypatch):
+    events: list[dict[str, object]] = []
+    monkeypatch.setattr(planner, "record_alignment_event", lambda event: events.append(event))
+    return events
 
 
 class DummyOpenAIClient:
@@ -389,7 +397,7 @@ def test_generate_plan_skips_guidance_without_api_key(monkeypatch):
     assert {"event": "dspy_guidance", "status": "skipped"} in guidance_events
 
 
-def test_goal_alignment_appends_note(monkeypatch):
+def test_goal_alignment_appends_note(monkeypatch, capture_alignment_events):
     monkeypatch.setattr(planner.settings, "use_dspy", False)
     monkeypatch.setattr(planner.vector_memory, "record_prd", lambda *args, **kwargs: None)
 
@@ -440,7 +448,7 @@ def test_goal_alignment_appends_note(monkeypatch):
     def _fake_notify(*args, **kwargs):
         notifications.append((args, kwargs))
         planner.record_alignment_notification("success")
-        return "success"
+        return "success", {"channel": "test"}
 
     monkeypatch.setattr(planner, "_notify_alignment", _fake_notify)
 
@@ -475,9 +483,12 @@ def test_goal_alignment_appends_note(monkeypatch):
     assert notifications and notifications[0][0][0] == "Visibility Initiative"
 
     assert result["related_initiatives"]
-    assert result["alignment_notification"] == "success"
+    assert result["alignment_insights"] == result["related_initiatives"]
+    assert result["alignment_notification"]["status"] == "success"
     assert "## Related Initiatives" in result["prd_markdown"]
     assert recorded_statuses.count("success") >= 1
+    assert capture_alignment_events
+    assert capture_alignment_events[-1]["notification"]["status"] == "success"
 
 
 def test_notify_alignment_respects_configuration(monkeypatch):
@@ -500,11 +511,12 @@ def test_notify_alignment_respects_configuration(monkeypatch):
     statuses: list[str] = []
     monkeypatch.setattr(planner, "record_alignment_notification", lambda status: statuses.append(status))
 
-    status = planner._notify_alignment("Test Initiative", "Note", [{"idea": "Other"}])
+    status, meta = planner._notify_alignment("Test Initiative", "Note", [{"idea": "Other"}])
 
     assert calls == []
     assert status == "disabled"
     assert "disabled" in statuses
+    assert meta.get("reason") == "notifications_disabled"
 
 
 def test_notify_alignment_deduplicates_pairs(monkeypatch):
@@ -527,10 +539,11 @@ def test_notify_alignment_deduplicates_pairs(monkeypatch):
     statuses: list[str] = []
     monkeypatch.setattr(planner, "record_alignment_notification", lambda status: statuses.append(status))
 
-    first = planner._notify_alignment("Test Initiative", "Note", [{"idea": "Other"}])
-    second = planner._notify_alignment("Test Initiative", "Another note", [{"idea": "Other"}])
+    first_status, first_meta = planner._notify_alignment("Test Initiative", "Note", [{"idea": "Other"}])
+    second_status, second_meta = planner._notify_alignment("Test Initiative", "Another note", [{"idea": "Other"}])
 
     assert len(calls) == 1
-    assert first == "success"
-    assert second == "duplicate"
+    assert first_status == "success"
+    assert second_status == "duplicate"
     assert "duplicate" in statuses
+    assert second_meta.get("reason") == "duplicate_pair"

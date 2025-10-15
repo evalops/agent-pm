@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     agent_tools_enabled: bool = Field(False, alias="AGENT_TOOLS_ENABLED")
     agents_config_path: Path = Field(Path("./config/agents.yaml"), alias="AGENTS_CONFIG_PATH")
     goal_alignment_notify: bool = Field(False, alias="GOAL_ALIGNMENT_NOTIFY")
+    alignment_log_path: Path = Field(Path("./data/alignment_log.json"), alias="ALIGNMENT_LOG_PATH")
     trace_export_webhook: str | None = Field(None, alias="TRACE_EXPORT_WEBHOOK")
     trace_export_s3_bucket: str | None = Field(None, alias="TRACE_EXPORT_S3_BUCKET")
     trace_export_s3_prefix: str = Field("traces/", alias="TRACE_EXPORT_S3_PREFIX")

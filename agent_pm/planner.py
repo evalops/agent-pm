@@ -3,10 +3,12 @@
 import json
 import logging
 from collections import deque
+from datetime import datetime
 
 from . import embeddings
 
 from .agent_sdk import CriticReview, PRDPlan, run_critic_agent, run_planner_agent
+from .alignment_log import record_alignment_event
 from .clients import openai_client, slack_client
 from .memory import TraceMemory, vector_memory
 from .metrics import (
@@ -157,6 +159,7 @@ def _collect_related_goals(title: str, goals: list[str]) -> list[dict[str, objec
                 "idea": existing_title,
                 "overlapping_goals": overlapping,
                 "similarity": round(similarity, 3),
+                "external_context": _build_external_context(existing_title, overlapping),
             }
         )
 
@@ -175,6 +178,25 @@ def _build_alignment_note(suggestions: list[dict[str, object]]) -> str:
     return "\n".join(lines)
 
 
+def _build_external_context(idea: str, overlapping_goals: list[str]) -> dict[str, object]:
+    context: dict[str, object] = {
+        "recommendation": f"Coordinate with {idea} owners on goals: {', '.join(overlapping_goals)}",
+    }
+    if slack_client.channel:
+        context["slack_channel"] = slack_client.channel
+        context["slack_link_hint"] = f"https://slack.com/app_redirect?channel={slack_client.channel}"
+    if settings.slack_status_channel and settings.slack_status_channel != slack_client.channel:
+        context["status_channel"] = settings.slack_status_channel
+    if settings.allowed_projects:
+        project = settings.allowed_projects[0]
+        context["jira_project"] = project
+        if settings.jira_base_url:
+            context["jira_search_url"] = (
+                f"{settings.jira_base_url}/issues/?jql=project%3D{project}%20AND%20text~\"{idea}\""
+            )
+    return context
+
+
 def _mark_alignment_notified(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
     new_pairs: list[tuple[str, str]] = []
     for pair in pairs:
@@ -189,47 +211,61 @@ def _mark_alignment_notified(pairs: list[tuple[str, str]]) -> list[tuple[str, st
     return new_pairs
 
 
-def _notify_alignment(title: str, alignment_note: str, suggestions: list[dict[str, object]]) -> str:
+def _notify_alignment(
+    title: str, alignment_note: str, suggestions: list[dict[str, object]]
+) -> tuple[str, dict[str, object]]:
+    metadata: dict[str, object] = {"message": alignment_note}
+    if slack_client.channel:
+        metadata["channel"] = slack_client.channel
+
     if not alignment_note:
+        metadata["reason"] = "empty_note"
         status = "skipped"
         record_alignment_notification(status)
-        return status
+        return status, metadata
 
     if not settings.goal_alignment_notify:
+        metadata["reason"] = "notifications_disabled"
         status = "disabled"
         record_alignment_notification(status)
-        return status
+        return status, metadata
 
     if not slack_client.enabled:
         if settings.dry_run:
             status = "dry_run"
+            metadata["reason"] = "dry_run"
         else:
             logger.info("Slack client disabled; skipping goal alignment notification")
             status = "disabled"
+            metadata["reason"] = "slack_disabled"
         record_alignment_notification(status)
-        return status
+        return status, metadata
 
     pairs = [(title, str(item.get("idea"))) for item in suggestions if item.get("idea")]
     new_pairs = _mark_alignment_notified(pairs)
     if not new_pairs:
         logger.info("Skipping duplicate goal alignment notification for %s", title)
         status = "duplicate"
+        metadata["reason"] = "duplicate_pair"
         record_alignment_notification(status)
-        return status
+        return status, metadata
 
     message = f"*Goal alignment surfaced for*: {title}\n{alignment_note}"
 
     try:
         import asyncio
 
-        async def _post() -> None:
-            await slack_client.post_digest(message)
+        async def _post() -> dict[str, object]:
+            return await slack_client.post_digest(message)
 
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            asyncio.run(_post())
+            metadata["mode"] = "sync"
+            response = asyncio.run(_post())
+            metadata["response"] = response
         else:
+            metadata["mode"] = "async"
             task = loop.create_task(_post())
 
             def _log_completion(task: asyncio.Task) -> None:
@@ -245,12 +281,13 @@ def _notify_alignment(title: str, alignment_note: str, suggestions: list[dict[st
             task.add_done_callback(_log_completion)
         status = "success"
         record_alignment_notification(status)
-        return status
+        return status, metadata
     except Exception as exc:  # pragma: no cover - logging for observability
         logger.warning("Failed to dispatch goal alignment notification: %s", exc)
         status = "error"
+        metadata["error"] = str(exc)
         record_alignment_notification(status)
-        return status
+        return status, metadata
 
 
 def _maybe_get_dspy_guidance(title: str, context: str, constraints: list[str]) -> str:
@@ -399,6 +436,7 @@ def generate_plan(
     )
     alignment_suggestions = _collect_related_goals(title, goals)
     alignment_status = "none"
+    notification_meta: dict[str, object] = {"reason": "no_matches"}
     if alignment_suggestions:
         trace.add(
             "meta",
@@ -411,10 +449,11 @@ def generate_plan(
         )
         alignment_note = _build_alignment_note(alignment_suggestions)
         user_prompt = f"{user_prompt}\n\nExisting alignment signal:\n{alignment_note}"
-        alignment_status = _notify_alignment(title, alignment_note, alignment_suggestions)
+        alignment_status, notification_meta = _notify_alignment(title, alignment_note, alignment_suggestions)
         logger.info("Goal alignment note appended to planner prompt")
     else:
         record_alignment_notification("none")
+        notification_meta = {"reason": "no_matches"}
     if guidance:
         user_prompt = f"{user_prompt}\n\nGuidance:\n{guidance}"
         logger.info("DSPy guidance appended to planner prompt")
@@ -437,6 +476,15 @@ def generate_plan(
     digest = build_status_digest(title, context, goals, requirements, risks)
     review_payload = critic_review.model_dump() if critic_review else None
     record_revisions(len(revision_history))
+    record_alignment_event(
+        {
+            "title": title,
+            "context": context,
+            "timestamp": datetime.utcnow().isoformat(),
+            "suggestions": alignment_suggestions,
+            "notification": {"status": alignment_status, **notification_meta},
+        }
+    )
     return {
         "prd_markdown": prd,
         "raw_plan": text,
@@ -444,7 +492,8 @@ def generate_plan(
         "critic_review": review_payload,
         "revision_history": revision_history,
         "related_initiatives": alignment_suggestions,
-        "alignment_notification": alignment_status,
+        "alignment_notification": {"status": alignment_status, **notification_meta},
+        "alignment_insights": alignment_suggestions,
     }
 
 
