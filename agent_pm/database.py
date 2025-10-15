@@ -118,6 +118,20 @@ class PRDApproval(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
 
+class AlignmentEvent(Base):
+    """Stored goal alignment event for analytics/reporting."""
+
+    __tablename__ = "alignment_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    title: Mapped[str] = mapped_column(String(512))
+    context: Mapped[str | None] = mapped_column(Text, nullable=True)
+    suggestions: Mapped[list] = mapped_column(JSON, default=list)
+    notification_status: Mapped[str] = mapped_column(String(64))
+    notification_meta: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
 # Database engine and session factory
 _engine = None
 _session_factory = None

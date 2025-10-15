@@ -21,6 +21,7 @@ from agent_pm.health import check_all_dependencies
 from agent_pm.logging_config import configure_logging
 from agent_pm.memory import TraceMemory
 from agent_pm.metrics import latest_metrics
+from agent_pm.alignment_log import fetch_alignment_events, summarize_alignment_events
 from agent_pm.models import BatchIdea, Idea, JiraIssuePayload, ReviewEvent, SlackDigest, TicketPlan
 from agent_pm.planner import generate_plan
 from agent_pm.prd_changelog import generate_changelog
@@ -93,6 +94,13 @@ async def plan(idea: Idea, _api_key: APIKeyDep = None) -> dict[str, Any]:
         return await _plan_impl(idea)
     finally:
         release_concurrency()
+
+
+@app.get("/alignments", dependencies=[Depends(enforce_rate_limit)])
+async def list_alignments(limit: int = 50, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
+    events = await fetch_alignment_events(limit)
+    summary = summarize_alignment_events(events)
+    return {"events": events, "summary": summary}
 
 
 async def _plan_impl(idea: Idea) -> dict[str, Any]:
