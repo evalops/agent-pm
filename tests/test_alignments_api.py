@@ -10,9 +10,7 @@ def test_alignments_endpoint(monkeypatch):
         {
             "title": "Alpha",
             "context": "Context",
-            "suggestions": [
-                {"idea": "Beta", "overlapping_goals": ["Improve"], "similarity": 0.9}
-            ],
+            "suggestions": [{"idea": "Beta", "overlapping_goals": ["Improve"], "similarity": 0.9}],
             "notification": {"status": "success"},
             "created_at": "2024-01-01T00:00:00",
         }

@@ -6,9 +6,7 @@ from pydantic import BaseModel, Field
 class Idea(BaseModel):
     title: str = Field(..., description="Idea title")
     context: str | None = Field("", description="Background information")
-    constraints: list[str] | None = Field(
-        default_factory=list, description="Constraints"
-    )
+    constraints: list[str] | None = Field(default_factory=list, description="Constraints")
     enable_tools: bool | None = Field(
         default=None,
         description="Allow planner agent to call external tools (overrides default when set)",

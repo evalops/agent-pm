@@ -66,11 +66,7 @@ def summarize_trace(name: str) -> dict[str, object]:
     for event in events:
         if event.get("role") != "meta":
             if event.get("role") == "critic":
-                critic_status = (
-                    json.loads(event["content"]).get("status")
-                    if event.get("content")
-                    else critic_status
-                )
+                critic_status = json.loads(event["content"]).get("status") if event.get("content") else critic_status
             continue
         try:
             payload = json.loads(event.get("content", "{}"))

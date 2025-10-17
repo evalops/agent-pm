@@ -110,9 +110,7 @@ class TicketAutomationPlugin(PluginBase):
         if len(self.export_events) > 25:
             self.export_events = self.export_events[-25:]
 
-    def _build_payload(
-        self, plan: dict[str, Any], context: dict[str, Any]
-    ) -> dict[str, Any]:
+    def _build_payload(self, plan: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
         title = context.get("title") or plan.get("title", "Generated Plan")
         summary = f"{self.summary_prefix} {title}".strip()
         description_lines = [
@@ -135,9 +133,5 @@ class TicketAutomationPlugin(PluginBase):
             }
         }
         if self.watchers:
-            payload["update"] = {
-                "watcher": [
-                    {"add": {"accountId": watcher}} for watcher in self.watchers
-                ]
-            }
+            payload["update"] = {"watcher": [{"add": {"accountId": watcher}} for watcher in self.watchers]}
         return payload

@@ -13,12 +13,8 @@ from agent_pm.alignment_export import upload_csv_to_s3, write_csv
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Export alignment insights")
-    parser.add_argument(
-        "--limit", type=int, default=100, help="Number of events to export"
-    )
-    parser.add_argument(
-        "--api-url", dest="api_url", help="Alignments API URL", default=None
-    )
+    parser.add_argument("--limit", type=int, default=100, help="Number of events to export")
+    parser.add_argument("--api-url", dest="api_url", help="Alignments API URL", default=None)
     parser.add_argument(
         "--api-key",
         dest="api_key",
@@ -45,9 +41,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    events, summary, source = load_alignment_data(
-        limit=args.limit, api_url=args.api_url, api_key=args.api_key
-    )
+    events, summary, source = load_alignment_data(limit=args.limit, api_url=args.api_url, api_key=args.api_key)
     print(f"Exporting {len(events)} events from {source}")
     statuses = set(args.followup_status or []) or None
 

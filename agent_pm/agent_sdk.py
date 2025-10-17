@@ -39,9 +39,7 @@ class PRDPlan(BaseModel):
     risks: list[str] = Field(default_factory=list)
     users: str = Field(default="Engineers, PMs, stakeholders")
 
-    @field_validator(
-        "goals", "nongoals", "requirements", "acceptance", "risks", mode="before"
-    )
+    @field_validator("goals", "nongoals", "requirements", "acceptance", "risks", mode="before")
     @staticmethod
     def _ensure_list(value: object) -> list[str]:
         if value is None:
@@ -221,9 +219,7 @@ DEFAULT_CRITIC_CONFIG: dict[str, Any] = {
 
 
 @output_guardrail(name="require_prd_sections")
-async def ensure_prd_completeness(
-    context, agent, output: PRDPlan
-) -> GuardrailFunctionOutput:
+async def ensure_prd_completeness(context, agent, output: PRDPlan) -> GuardrailFunctionOutput:
     missing_sections: list[str] = []
     if not output.goals:
         missing_sections.append("goals")
@@ -276,35 +272,21 @@ def reload_agent_profiles() -> None:
 
     planner_section = config.get("planner")
     planner_cfg = (
-        DEFAULT_PLANNER_CONFIG | planner_section
-        if isinstance(planner_section, dict)
-        else DEFAULT_PLANNER_CONFIG
+        DEFAULT_PLANNER_CONFIG | planner_section if isinstance(planner_section, dict) else DEFAULT_PLANNER_CONFIG
     )
 
     critic_section = config.get("critic")
-    critic_cfg = (
-        DEFAULT_CRITIC_CONFIG | critic_section
-        if isinstance(critic_section, dict)
-        else DEFAULT_CRITIC_CONFIG
-    )
+    critic_cfg = DEFAULT_CRITIC_CONFIG | critic_section if isinstance(critic_section, dict) else DEFAULT_CRITIC_CONFIG
 
-    _planner_default_max_turns = int(
-        planner_cfg.get("max_turns", DEFAULT_PLANNER_CONFIG["max_turns"])
-    )
-    _critic_default_max_turns = int(
-        critic_cfg.get("max_turns", DEFAULT_CRITIC_CONFIG["max_turns"])
-    )
+    _planner_default_max_turns = int(planner_cfg.get("max_turns", DEFAULT_PLANNER_CONFIG["max_turns"]))
+    _critic_default_max_turns = int(critic_cfg.get("max_turns", DEFAULT_CRITIC_CONFIG["max_turns"]))
     _planner_tools_default = bool(
-        planner_cfg.get(
-            "enable_tools_by_default", DEFAULT_PLANNER_CONFIG["enable_tools_by_default"]
-        )
+        planner_cfg.get("enable_tools_by_default", DEFAULT_PLANNER_CONFIG["enable_tools_by_default"])
     )
 
     _BASE_PLANNER_AGENT = Agent(
         name=planner_cfg.get("name", DEFAULT_PLANNER_CONFIG["name"]),
-        instructions=planner_cfg.get(
-            "instructions", DEFAULT_PLANNER_CONFIG["instructions"]
-        ),
+        instructions=planner_cfg.get("instructions", DEFAULT_PLANNER_CONFIG["instructions"]),
         model=planner_cfg.get("model", DEFAULT_PLANNER_CONFIG["model"]),
         output_type=PRDPlan,
         output_guardrails=[ensure_prd_completeness],
@@ -315,9 +297,7 @@ def reload_agent_profiles() -> None:
 
     _CRITIC_AGENT = Agent(
         name=critic_cfg.get("name", DEFAULT_CRITIC_CONFIG["name"]),
-        instructions=critic_cfg.get(
-            "instructions", DEFAULT_CRITIC_CONFIG["instructions"]
-        ),
+        instructions=critic_cfg.get("instructions", DEFAULT_CRITIC_CONFIG["instructions"]),
         model=critic_cfg.get("model", DEFAULT_CRITIC_CONFIG["model"]),
         output_type=CriticReview,
     )
@@ -375,9 +355,7 @@ def run_critic_agent(
         except Exception:  # pragma: no cover - fallback
             logger.warning("Critic agent returned unparsable string output")
     logger.warning("Critic agent response missing structured output; using defaults")
-    return CriticReview(
-        status="revise", issues=["Critic returned no structured output."]
-    )
+    return CriticReview(status="revise", issues=["Critic returned no structured output."])
 
 
 def run_planner_agent(
@@ -390,20 +368,14 @@ def run_planner_agent(
 
     preliminary = _assess_prompt(prompt)
     if preliminary.tripwire_triggered:
-        issues = (
-            preliminary.output_info.get("issues", [])
-            if isinstance(preliminary.output_info, dict)
-            else []
-        )
+        issues = preliminary.output_info.get("issues", []) if isinstance(preliminary.output_info, dict) else []
         reason = ", ".join(issues) if issues else "input rejected by guardrail"
         raise ValueError(f"Planner input rejected: {reason}")
 
     session = _prepare_session(conversation_id or "planner")
     try:
         with trace("planner-agent"):
-            tools_flag = (
-                _planner_tools_default if enable_tools is None else enable_tools
-            )
+            tools_flag = _planner_tools_default if enable_tools is None else enable_tools
             agent = _PLANNER_AGENT_WITH_TOOLS if tools_flag else _BASE_PLANNER_AGENT
             result = _RUNNER.run_sync(
                 agent,

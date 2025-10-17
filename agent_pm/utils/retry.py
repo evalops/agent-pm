@@ -28,9 +28,7 @@ async def with_exponential_backoff(
             if attempt == attempts:
                 break
             sleep_for = base_delay * (2 ** (attempt - 1)) + random.uniform(0, jitter)
-            logger.warning(
-                "Retryable error (attempt %s/%s): %s", attempt, attempts, exc
-            )
+            logger.warning("Retryable error (attempt %s/%s): %s", attempt, attempts, exc)
             await asyncio.sleep(sleep_for)
     assert last_error is not None
     raise last_error

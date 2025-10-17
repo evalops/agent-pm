@@ -38,23 +38,15 @@ class Task(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     task_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(255))
-    status: Mapped[TaskStatusDB] = mapped_column(
-        Enum(TaskStatusDB), default=TaskStatusDB.PENDING, index=True
-    )
+    status: Mapped[TaskStatusDB] = mapped_column(Enum(TaskStatusDB), default=TaskStatusDB.PENDING, index=True)
     payload: Mapped[dict] = mapped_column(JSON, nullable=True)  # serialized args/kwargs
     result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
     max_retries: Mapped[int] = mapped_column(Integer, default=3)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now, index=True
-    )
-    started_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Plan(Base):
@@ -73,17 +65,11 @@ class Plan(Base):
     critic_review: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     revision_history: Mapped[list] = mapped_column(JSON, default=list)
     trace_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    embedding: Mapped[list | None] = mapped_column(
-        JSON, nullable=True
-    )  # OpenAI embedding vector
+    embedding: Mapped[list | None] = mapped_column(JSON, nullable=True)  # OpenAI embedding vector
     tokens_used: Mapped[int | None] = mapped_column(Integer, nullable=True)
     cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now, index=True
-    )
-    completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Feedback(Base):
@@ -97,9 +83,7 @@ class Feedback(Base):
     rating: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 1-5 stars
     edited_prd: Mapped[str | None] = mapped_column(Text, nullable=True)
     comments: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now, index=True
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
 
 
 class PRDVersion(Base):
@@ -108,27 +92,17 @@ class PRDVersion(Base):
     __tablename__ = "prd_versions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    version_id: Mapped[str] = mapped_column(
-        String(64), unique=True, index=True
-    )  # SHA-like hash
+    version_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)  # SHA-like hash
     plan_id: Mapped[str] = mapped_column(String(64), index=True)  # Links to Plan
-    parent_version_id: Mapped[str | None] = mapped_column(
-        String(64), nullable=True, index=True
-    )
+    parent_version_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     branch: Mapped[str] = mapped_column(String(255), default="main", index=True)
     prd_markdown: Mapped[str] = mapped_column(Text)
     commit_message: Mapped[str | None] = mapped_column(String(512), nullable=True)
     author: Mapped[str | None] = mapped_column(String(255), nullable=True)
     author_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    status: Mapped[str] = mapped_column(
-        String(64), default="draft", index=True
-    )  # draft, approved, merged
-    diff_summary: Mapped[dict | None] = mapped_column(
-        JSON, nullable=True
-    )  # lines added/removed
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now, index=True
-    )
+    status: Mapped[str] = mapped_column(String(64), default="draft", index=True)  # draft, approved, merged
+    diff_summary: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # lines added/removed
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
 
 
 class PRDApproval(Base):
@@ -140,13 +114,9 @@ class PRDApproval(Base):
     version_id: Mapped[str] = mapped_column(String(64), index=True)
     reviewer: Mapped[str] = mapped_column(String(255))
     reviewer_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    status: Mapped[str] = mapped_column(
-        String(64)
-    )  # approved, rejected, changes_requested
+    status: Mapped[str] = mapped_column(String(64))  # approved, rejected, changes_requested
     comments: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now, index=True
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
 
 
 class AlignmentEvent(Base):
@@ -162,12 +132,8 @@ class AlignmentEvent(Base):
     notification_status: Mapped[str] = mapped_column(String(64))
     notification_meta: Mapped[dict] = mapped_column(JSON, default=dict)
     followup_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    followup_recorded_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now, index=True
-    )
+    followup_recorded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
 
 
 # Database engine and session factory

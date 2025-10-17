@@ -27,9 +27,7 @@ def load_plugin_config(path: Path) -> tuple[list[dict[str, Any]], list[dict[str,
     if isinstance(data, dict):
         data = [dict({"name": key}, **value) for key, value in data.items()]
     if not isinstance(data, list):
-        return [], [
-            {"index": 0, "entry": data, "error": "plugins.yaml must define a list"}
-        ]
+        return [], [{"index": 0, "entry": data, "error": "plugins.yaml must define a list"}]
     entries: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     for index, entry in enumerate(data):

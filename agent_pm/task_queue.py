@@ -107,9 +107,7 @@ class TaskQueue:
         async with self._lock:
             return self.tasks.get(task_id)
 
-    async def list_tasks(
-        self, status: TaskStatus | None = None, limit: int = 50
-    ) -> list[Task]:
+    async def list_tasks(self, status: TaskStatus | None = None, limit: int = 50) -> list[Task]:
         """List tasks, optionally filtered by status."""
         async with self._lock:
             tasks = list(self.tasks.values())
@@ -174,9 +172,7 @@ class TaskQueue:
             else:
                 task.status = TaskStatus.FAILED
                 task.completed_at = utc_now()
-                logger.error(
-                    "Task permanently failed: %s (id=%s)", task.name, task.task_id
-                )
+                logger.error("Task permanently failed: %s (id=%s)", task.name, task.task_id)
 
 
 # Global task queue instance

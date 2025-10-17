@@ -30,12 +30,8 @@ def compute_diff(old_content: str, new_content: str) -> dict[str, Any]:
     diff = list(difflib.unified_diff(old_lines, new_lines, lineterm=""))
 
     # Count changes
-    additions = sum(
-        1 for line in diff if line.startswith("+") and not line.startswith("+++")
-    )
-    deletions = sum(
-        1 for line in diff if line.startswith("-") and not line.startswith("---")
-    )
+    additions = sum(1 for line in diff if line.startswith("+") and not line.startswith("+++"))
+    deletions = sum(1 for line in diff if line.startswith("-") and not line.startswith("---"))
 
     return {
         "additions": additions,
@@ -72,9 +68,7 @@ async def create_version(
     # Compute diff if parent exists
     diff_summary = None
     if parent_version_id:
-        result = await session.execute(
-            select(PRDVersion).where(PRDVersion.version_id == parent_version_id)
-        )
+        result = await session.execute(select(PRDVersion).where(PRDVersion.version_id == parent_version_id))
         parent = result.scalar_one_or_none()
         if parent:
             diff_summary = compute_diff(parent.prd_markdown, prd_markdown)
@@ -130,9 +124,7 @@ async def create_branch(
     author: str | None = None,
 ) -> PRDVersion:
     """Create new branch from existing version (like git checkout -b)."""
-    result = await session.execute(
-        select(PRDVersion).where(PRDVersion.version_id == source_version_id)
-    )
+    result = await session.execute(select(PRDVersion).where(PRDVersion.version_id == source_version_id))
     source = result.scalar_one()
 
     # Create new version on new branch
@@ -149,9 +141,7 @@ async def create_branch(
 
 async def get_blame(session: AsyncSession, version_id: str) -> dict[str, Any]:
     """Get blame info: which author changed which sections."""
-    result = await session.execute(
-        select(PRDVersion).where(PRDVersion.version_id == version_id)
-    )
+    result = await session.execute(select(PRDVersion).where(PRDVersion.version_id == version_id))
     version = result.scalar_one()
 
     # Build blame by walking parent chain
@@ -172,9 +162,7 @@ async def get_blame(session: AsyncSession, version_id: str) -> dict[str, Any]:
         # Walk to parent
         if not current.parent_version_id:
             break
-        result = await session.execute(
-            select(PRDVersion).where(PRDVersion.version_id == current.parent_version_id)
-        )
+        result = await session.execute(select(PRDVersion).where(PRDVersion.version_id == current.parent_version_id))
         current = result.scalar_one_or_none()
 
     return blame_map
@@ -237,9 +225,7 @@ async def approve_version(
     session.add(approval)
 
     # Update version status
-    result = await session.execute(
-        select(PRDVersion).where(PRDVersion.version_id == version_id)
-    )
+    result = await session.execute(select(PRDVersion).where(PRDVersion.version_id == version_id))
     version = result.scalar_one()
     version.status = "approved"
 

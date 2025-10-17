@@ -56,9 +56,7 @@ async def check_agents_config() -> dict[str, Any]:
             }
         with open(cfg_path) as f:
             data = yaml.safe_load(f)
-        if not isinstance(data, dict) or (
-            "planner" not in data and "critic" not in data
-        ):
+        if not isinstance(data, dict) or ("planner" not in data and "critic" not in data):
             return {
                 "status": "error",
                 "service": "agents_config",

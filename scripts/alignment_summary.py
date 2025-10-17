@@ -11,9 +11,7 @@ from agent_pm.alignment_log import get_alignment_summary
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Summarize goal alignment events")
-    parser.add_argument(
-        "--limit", type=int, default=50, help="Number of recent events to include"
-    )
+    parser.add_argument("--limit", type=int, default=50, help="Number of recent events to include")
     parser.add_argument(
         "--format",
         choices={"text", "json"},

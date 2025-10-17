@@ -25,16 +25,10 @@ class Settings(BaseSettings):
     jira_email: str | None = Field(None, alias="JIRA_EMAIL")
     dry_run: bool = Field(True, alias="DRY_RUN")
     approval_required: bool = Field(True, alias="APPROVAL_REQUIRED")
-    vector_store_path: Path = Field(
-        Path("./data/vector_store.json"), alias="VECTOR_STORE_PATH"
-    )
+    vector_store_path: Path = Field(Path("./data/vector_store.json"), alias="VECTOR_STORE_PATH")
     trace_dir: Path = Field(Path("./data/traces"), alias="TRACE_DIR")
-    tool_config_path: Path = Field(
-        Path("./config/tools.yaml"), alias="TOOL_CONFIG_PATH"
-    )
-    plugin_config_path: Path = Field(
-        Path("./config/plugins.yaml"), alias="PLUGIN_CONFIG_PATH"
-    )
+    tool_config_path: Path = Field(Path("./config/tools.yaml"), alias="TOOL_CONFIG_PATH")
+    plugin_config_path: Path = Field(Path("./config/plugins.yaml"), alias="PLUGIN_CONFIG_PATH")
     plugin_secret_path: Path | None = Field(None, alias="PLUGIN_SECRET_PATH")
     procedure_dir: Path = Field(Path("./procedures"), alias="PROCEDURE_DIR")
     allowed_projects: list[str] = Field(default_factory=list, alias="ALLOWED_PROJECTS")
@@ -55,31 +49,19 @@ class Settings(BaseSettings):
     calendar_base_url: str | None = Field(None, alias="CALENDAR_BASE_URL")
     calendar_api_key: str | None = Field(None, alias="CALENDAR_API_KEY")
     calendar_id: str | None = Field(None, alias="CALENDAR_ID")
-    google_service_account_json: str | None = Field(
-        None, alias="GOOGLE_SERVICE_ACCOUNT_JSON"
-    )
-    google_service_account_file: Path | None = Field(
-        None, alias="GOOGLE_SERVICE_ACCOUNT_FILE"
-    )
+    google_service_account_json: str | None = Field(None, alias="GOOGLE_SERVICE_ACCOUNT_JSON")
+    google_service_account_file: Path | None = Field(None, alias="GOOGLE_SERVICE_ACCOUNT_FILE")
     google_calendar_scopes: list[str] = Field(
         default_factory=lambda: ["https://www.googleapis.com/auth/calendar.events"],
         alias="GOOGLE_CALENDAR_SCOPES",
     )
-    google_calendar_delegated_user: str | None = Field(
-        None, alias="GOOGLE_CALENDAR_DELEGATED_USER"
-    )
+    google_calendar_delegated_user: str | None = Field(None, alias="GOOGLE_CALENDAR_DELEGATED_USER")
     use_dspy: bool = Field(False, alias="USE_DSPY")
-    agent_session_db: Path = Field(
-        Path("./data/agent_sessions.db"), alias="AGENTS_SESSION_DB"
-    )
+    agent_session_db: Path = Field(Path("./data/agent_sessions.db"), alias="AGENTS_SESSION_DB")
     agent_tools_enabled: bool = Field(False, alias="AGENT_TOOLS_ENABLED")
-    agents_config_path: Path = Field(
-        Path("./config/agents.yaml"), alias="AGENTS_CONFIG_PATH"
-    )
+    agents_config_path: Path = Field(Path("./config/agents.yaml"), alias="AGENTS_CONFIG_PATH")
     goal_alignment_notify: bool = Field(False, alias="GOAL_ALIGNMENT_NOTIFY")
-    alignment_log_path: Path = Field(
-        Path("./data/alignment_log.json"), alias="ALIGNMENT_LOG_PATH"
-    )
+    alignment_log_path: Path = Field(Path("./data/alignment_log.json"), alias="ALIGNMENT_LOG_PATH")
     trace_export_webhook: str | None = Field(None, alias="TRACE_EXPORT_WEBHOOK")
     trace_export_s3_bucket: str | None = Field(None, alias="TRACE_EXPORT_S3_BUCKET")
     trace_export_s3_prefix: str = Field("traces/", alias="TRACE_EXPORT_S3_PREFIX")

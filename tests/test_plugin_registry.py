@@ -206,10 +206,7 @@ def test_slack_and_warehouse_plugins(monkeypatch, tmp_path):
 
     events_file = tmp_path / "events.jsonl"
     assert events_file.exists()
-    output_records = [
-        json.loads(line)
-        for line in events_file.read_text(encoding="utf-8").splitlines()
-    ]
+    output_records = [json.loads(line) for line in events_file.read_text(encoding="utf-8").splitlines()]
     assert any(record["event"] == "ticket_export" for record in output_records)
     assert any(record["event"] == "alignment_event" for record in output_records)
     assert any(record["event"] == "feedback" for record in output_records)
@@ -225,9 +222,7 @@ def test_invalid_plugin_configuration_surfaces_errors(tmp_path):
     registry = PluginRegistry(config_path)
     metadata = registry.list_metadata()
     assert metadata
-    invalid_entry = next(
-        item for item in metadata if item["name"].startswith("invalid_plugin")
-    )
+    invalid_entry = next(item for item in metadata if item["name"].startswith("invalid_plugin"))
     assert invalid_entry["errors"]
     assert invalid_entry["enabled"] is False
     assert invalid_entry["invalid"] is True

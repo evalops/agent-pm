@@ -36,18 +36,14 @@ class CalendarClient:
         if settings.google_service_account_json:
             try:
                 info = json.loads(settings.google_service_account_json)
-            except (
-                json.JSONDecodeError
-            ) as exc:  # pragma: no cover - configuration error
+            except json.JSONDecodeError as exc:  # pragma: no cover - configuration error
                 logger.error("Invalid GOOGLE_SERVICE_ACCOUNT_JSON: %s", exc)
         elif settings.google_service_account_file:
             path = Path(settings.google_service_account_file)
             if path.is_file():
                 try:
                     info = json.loads(path.read_text(encoding="utf-8"))
-                except (
-                    json.JSONDecodeError
-                ) as exc:  # pragma: no cover - configuration error
+                except json.JSONDecodeError as exc:  # pragma: no cover - configuration error
                     logger.error("Invalid service account file JSON: %s", exc)
             else:  # pragma: no cover - configuration error
                 logger.error("GOOGLE_SERVICE_ACCOUNT_FILE not found: %s", path)
@@ -55,9 +51,7 @@ class CalendarClient:
         if not info:
             return None
 
-        credentials = service_account.Credentials.from_service_account_info(
-            info, scopes=self._scopes
-        )
+        credentials = service_account.Credentials.from_service_account_info(info, scopes=self._scopes)
         if self._delegated_user:
             credentials = credentials.with_subject(self._delegated_user)
         return credentials
@@ -104,9 +98,7 @@ class CalendarClient:
 
         attendees = attendees or []
         start_iso, start_tz = self._ensure_datetime(start_time)
-        end_iso, end_tz = self._ensure_datetime(
-            start_time + timedelta(minutes=duration_minutes)
-        )
+        end_iso, end_tz = self._ensure_datetime(start_time + timedelta(minutes=duration_minutes))
 
         event: dict[str, Any] = {
             "summary": summary,
@@ -134,9 +126,7 @@ class CalendarClient:
                 "sendUpdates": "all" if attendees else "none",
             }
             async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    url, headers=headers, params=params, json=event, timeout=30
-                )
+                response = await client.post(url, headers=headers, params=params, json=event, timeout=30)
             response.raise_for_status()
             return response.json()
 

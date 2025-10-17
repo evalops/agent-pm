@@ -17,9 +17,7 @@ def _stub_embedding(text: str, size: int = 1536) -> list[float]:
     return [data[i] / 255.0 for i in range(size)]
 
 
-async def generate_embedding(
-    text: str, model: str = "text-embedding-3-small"
-) -> list[float]:
+async def generate_embedding(text: str, model: str = "text-embedding-3-small") -> list[float]:
     """Generate embedding vector using OpenAI API or a deterministic stub in dry-run mode."""
     client = get_async_openai_client()
     if client is None:
@@ -45,9 +43,7 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
     return dot_product / (magnitude_a * magnitude_b)
 
 
-def generate_embedding_sync(
-    text: str, model: str = "text-embedding-3-small"
-) -> list[float]:
+def generate_embedding_sync(text: str, model: str = "text-embedding-3-small") -> list[float]:
     """Blocking helper for generating embeddings.
 
     Falls back to deterministic stub when called from an active event loop or
@@ -85,9 +81,6 @@ async def search_similar_plans(
     Returns:
         List of (plan_id, similarity_score) tuples, sorted by score descending
     """
-    similarities = [
-        (plan_id, cosine_similarity(query_embedding, emb))
-        for plan_id, emb in candidate_embeddings
-    ]
+    similarities = [(plan_id, cosine_similarity(query_embedding, emb)) for plan_id, emb in candidate_embeddings]
     similarities.sort(key=lambda x: x[1], reverse=True)
     return similarities[:top_k]

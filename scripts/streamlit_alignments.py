@@ -42,14 +42,10 @@ with st.sidebar:
     st.header("Configuration")
     limit = st.slider("Events to load", min_value=10, max_value=200, value=50, step=10)
     auto_refresh = st.checkbox("Auto-refresh", value=True)
-    refresh_interval = st.number_input(
-        "Refresh interval (seconds)", min_value=15, max_value=300, value=60, step=15
-    )
+    refresh_interval = st.number_input("Refresh interval (seconds)", min_value=15, max_value=300, value=60, step=15)
     refresh = st.button("Refresh now", use_container_width=True)
     plugin_api = st.text_input("Plugins API", value=os.getenv("PLUGINS_API_URL", ""))
-    plugin_api_key = st.text_input(
-        "Plugins API Key", value=os.getenv("PLUGINS_API_KEY", ""), type="password"
-    )
+    plugin_api_key = st.text_input("Plugins API Key", value=os.getenv("PLUGINS_API_KEY", ""), type="password")
 
 
 @st.cache_data(ttl=60)
@@ -78,9 +74,7 @@ records = flatten_alignment_records(events)
 df = pd.DataFrame.from_records(records)
 conversion = followup_conversion(events)
 
-st.caption(
-    f"Data source: {source.upper()} (last {summary.get('total_events', len(events))} events)"
-)
+st.caption(f"Data source: {source.upper()} (last {summary.get('total_events', len(events))} events)")
 
 
 @st.cache_data(ttl=60)
@@ -106,9 +100,7 @@ def _plugin_api_request(
     return response.json()
 
 
-plugins, plugin_source = _get_plugin_registry(
-    plugin_api.strip(), plugin_api_key.strip()
-)
+plugins, plugin_source = _get_plugin_registry(plugin_api.strip(), plugin_api_key.strip())
 
 status_counts = summary.get("status_counts", {})
 status_keys = sorted(status_counts.keys())
@@ -124,34 +116,22 @@ overall_rate = conversion["rates"].get("overall", 0.0)
 colf1, colf2, colf3 = st.columns(3)
 colf1.metric("Follow-ups Logged", followup_total)
 colf2.metric("Distinct Follow-up Outcomes", len(conversion["followup_counts"]))
-colf3.metric(
-    "Overall Follow-up Rate", f"{overall_rate * 100:.1f}%" if overall_rate else "0%"
-)
+colf3.metric("Overall Follow-up Rate", f"{overall_rate * 100:.1f}%" if overall_rate else "0%")
 
 if conversion["per_notification"]:
     per_df = pd.DataFrame(conversion["per_notification"]).fillna(0).T
     st.bar_chart(per_df)
 
 
-status_filter = st.multiselect(
-    "Filter by status", options=status_keys, default=status_keys
-)
+status_filter = st.multiselect("Filter by status", options=status_keys, default=status_keys)
 channel_options: list[str] = []
 if not df.empty and "channel" in df.columns:
-    channel_options = sorted(
-        [value for value in df["channel"].dropna().unique() if value]
-    )
-channel_filter = st.multiselect(
-    "Filter by Slack channel", options=channel_options, default=channel_options
-)
+    channel_options = sorted([value for value in df["channel"].dropna().unique() if value])
+channel_filter = st.multiselect("Filter by Slack channel", options=channel_options, default=channel_options)
 followup_options: list[str] = []
 if not df.empty and "followup_status" in df.columns:
-    followup_options = sorted(
-        [value for value in df["followup_status"].dropna().unique() if value]
-    )
-followup_filter = st.multiselect(
-    "Filter by follow-up status", options=followup_options, default=followup_options
-)
+    followup_options = sorted([value for value in df["followup_status"].dropna().unique() if value])
+followup_filter = st.multiselect("Filter by follow-up status", options=followup_options, default=followup_options)
 search_text = st.text_input("Search by initiative or idea")
 
 if not df.empty:
@@ -165,8 +145,7 @@ if not df.empty:
         lowered = search_text.lower()
         df = df[
             df.apply(
-                lambda row: lowered in str(row.get("title", "")).lower()
-                or lowered in str(row.get("idea", "")).lower(),
+                lambda row: lowered in str(row.get("title", "")).lower() or lowered in str(row.get("idea", "")).lower(),
                 axis=1,
             )
         ]
@@ -189,9 +168,7 @@ else:
     st.dataframe(
         df_display,
         use_container_width=True,
-        column_config={
-            "slack_link": st.column_config.LinkColumn("Slack", display_text="Open")
-        },
+        column_config={"slack_link": st.column_config.LinkColumn("Slack", display_text="Open")},
     )
 
 st.subheader("Status Trend")
@@ -227,12 +204,8 @@ else:
         stats = item.get("hook_stats") or {}
         total_invocations = sum(entry.get("invocations", 0) for entry in stats.values())
         total_failures = sum(entry.get("failures", 0) for entry in stats.values())
-        total_duration = sum(
-            entry.get("total_duration_ms", 0.0) for entry in stats.values()
-        )
-        avg_duration = (
-            round(total_duration / total_invocations, 3) if total_invocations else 0.0
-        )
+        total_duration = sum(entry.get("total_duration_ms", 0.0) for entry in stats.values())
+        avg_duration = round(total_duration / total_invocations, 3) if total_invocations else 0.0
         summary_rows.append(
             {
                 "name": item.get("name"),
@@ -241,9 +214,7 @@ else:
                 "invocations": total_invocations,
                 "failures": total_failures,
                 "avg_duration_ms": avg_duration,
-                "missing_secrets": ", ".join(
-                    item.get("secrets", {}).get("missing", [])
-                ),
+                "missing_secrets": ", ".join(item.get("secrets", {}).get("missing", [])),
                 "errors": "; ".join(item.get("errors", [])),
                 "invalid": item.get("invalid", False),
             }
@@ -260,8 +231,7 @@ else:
                 }
             )
         history_lookup[item.get("name")] = {
-            hook: list(entries)
-            for hook, entries in (item.get("hook_history") or {}).items()
+            hook: list(entries) for hook, entries in (item.get("hook_history") or {}).items()
         }
 
     if summary_rows:
@@ -271,9 +241,7 @@ else:
     if hook_rows:
         hook_df = pd.DataFrame(hook_rows)
         st.dataframe(hook_df, use_container_width=True)
-        pivot = hook_df.pivot_table(
-            index="hook", columns="plugin", values="invocations", fill_value=0
-        )
+        pivot = hook_df.pivot_table(index="hook", columns="plugin", values="invocations", fill_value=0)
         st.bar_chart(pivot)
 
     st.subheader("Hook Timeline")
@@ -285,16 +253,12 @@ else:
             st.info("No hook history recorded for this plugin yet.")
         else:
             hook_options = list(hook_history.keys())
-            selected_hook = st.selectbox(
-                "Hook", hook_options, key=f"hook_{selected_plugin}"
-            )
+            selected_hook = st.selectbox("Hook", hook_options, key=f"hook_{selected_plugin}")
             entries = hook_history.get(selected_hook, [])
             if entries:
                 history_df = pd.DataFrame(entries)
                 if not history_df.empty and "timestamp" in history_df:
-                    history_df["timestamp"] = pd.to_datetime(
-                        history_df["timestamp"], errors="coerce"
-                    )
+                    history_df["timestamp"] = pd.to_datetime(history_df["timestamp"], errors="coerce")
                     history_df = history_df.dropna(subset=["timestamp"])
                     if not history_df.empty:
                         chart_df = history_df.set_index("timestamp")["duration_ms"]
@@ -311,22 +275,14 @@ else:
             with st.expander(f"{plugin_name} controls", expanded=False):
                 st.write(f"**Description:** {item.get('description', 'n/a')}")
                 st.write(f"**Hooks:** {', '.join(item.get('hooks', [])) or 'none'}")
-                st.write(
-                    f"**Missing secrets:** {', '.join(item.get('secrets', {}).get('missing', [])) or 'none'}"
-                )
+                st.write(f"**Missing secrets:** {', '.join(item.get('secrets', {}).get('missing', [])) or 'none'}")
                 config_json = json.dumps(item.get("config") or {}, indent=2)
                 with st.form(f"config_form_{plugin_name}"):
-                    updated_config = st.text_area(
-                        "Config (JSON)", value=config_json, height=220
-                    )
+                    updated_config = st.text_area("Config (JSON)", value=config_json, height=220)
                     submitted = st.form_submit_button("Update Config")
                     if submitted:
                         try:
-                            parsed_config = (
-                                json.loads(updated_config)
-                                if updated_config.strip()
-                                else {}
-                            )
+                            parsed_config = json.loads(updated_config) if updated_config.strip() else {}
                         except json.JSONDecodeError as exc:
                             st.error(f"Invalid JSON: {exc}")
                         else:
@@ -359,9 +315,7 @@ else:
                         st.success("Plugin reloaded.")
                         _get_plugin_registry.clear()
                         st.experimental_rerun()
-                toggle_label = (
-                    "Disable plugin" if item.get("enabled") else "Enable plugin"
-                )
+                toggle_label = "Disable plugin" if item.get("enabled") else "Enable plugin"
                 toggle_path = "/disable" if item.get("enabled") else "/enable"
                 if cols[1].button(toggle_label, key=f"toggle_{plugin_name}"):
                     try:

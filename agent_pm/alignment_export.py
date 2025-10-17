@@ -23,9 +23,7 @@ def build_rows(events: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     return flatten_alignment_records(list(events))
 
 
-def write_csv(
-    path: Path, events: Iterable[dict[str, Any]], *, statuses: set[str] | None = None
-) -> Path:
+def write_csv(path: Path, events: Iterable[dict[str, Any]], *, statuses: set[str] | None = None) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     rows = build_rows(events)
     if statuses:
@@ -52,9 +50,7 @@ def write_csv(
     return path
 
 
-def upload_csv_to_s3(
-    uri: str, events: Iterable[dict[str, Any]], *, statuses: set[str] | None = None
-) -> None:
+def upload_csv_to_s3(uri: str, events: Iterable[dict[str, Any]], *, statuses: set[str] | None = None) -> None:
     if boto3 is None:  # pragma: no cover - optional dependency
         raise RuntimeError("boto3 is required for S3 uploads")
 
