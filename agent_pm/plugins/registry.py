@@ -503,7 +503,10 @@ class PluginRegistry:
         sanitized: dict[str, Any] = {}
         for key, value in config.items():
             if key.lower() == "secrets" and isinstance(value, dict):
-                sanitized[key] = {secret_key: ("***" if secret_val not in (None, "") else None) for secret_key, secret_val in value.items()}
+                sanitized[key] = {
+                    secret_key: ("***" if secret_val not in (None, "") else None)
+                    for secret_key, secret_val in value.items()
+                }
             else:
                 sanitized[key] = value
         return sanitized

@@ -18,7 +18,9 @@ class TicketAutomationPlugin(PluginBase):
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         super().__init__(config)
-        self.project_key: str | None = self.config.get("project_key") or (settings.allowed_projects[0] if settings.allowed_projects else None)
+        self.project_key: str | None = self.config.get("project_key") or (
+            settings.allowed_projects[0] if settings.allowed_projects else None
+        )
         self.issue_type: str = self.config.get("issue_type", "Task")
         self.summary_prefix: str = self.config.get("summary_prefix", "[Plan]")
         self.watchers: list[str] = self.config.get("watchers", [])
@@ -128,7 +130,5 @@ class TicketAutomationPlugin(PluginBase):
             }
         }
         if self.watchers:
-            payload["update"] = {
-                "watcher": [{"add": {"accountId": watcher}} for watcher in self.watchers]
-            }
+            payload["update"] = {"watcher": [{"add": {"accountId": watcher}} for watcher in self.watchers]}
         return payload

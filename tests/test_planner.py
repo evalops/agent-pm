@@ -16,6 +16,7 @@ from agent_pm.memory import TraceMemory
 @pytest.fixture(autouse=True)
 def capture_alignment_events(monkeypatch):
     events: list[dict[str, object]] = []
+
     def _record(event: dict[str, object]) -> dict[str, object]:
         payload = dict(event)
         payload.setdefault("event_id", f"evt-{len(events)}")
@@ -259,6 +260,7 @@ def test_generate_plan_handles_dspy_runtime_error(monkeypatch):
             status="pass", issues=[], recommendations=[], confidence=0.9
         ),
     )
+
     def _failing_compile_brief(*args, **kwargs):
         raise RuntimeError("DSPy offline")
 
@@ -428,9 +430,7 @@ def test_goal_alignment_appends_note(monkeypatch, capture_alignment_events):
     monkeypatch.setattr(
         planner.embeddings,
         "generate_embedding_sync",
-        lambda text, model="text-embedding-3-small": [1.0, 0.0]
-        if "visibility" in text.lower()
-        else [0.0, 1.0],
+        lambda text, model="text-embedding-3-small": [1.0, 0.0] if "visibility" in text.lower() else [0.0, 1.0],
     )
     monkeypatch.setattr(planner.embeddings, "cosine_similarity", lambda a, b: 0.95 if a == b else 0.1)
 

@@ -117,6 +117,7 @@ def record_alignment_event(event: dict[str, Any]) -> dict[str, Any]:
 
     if _database_configured():
         with suppress(Exception):  # pragma: no cover - best-effort persistence
+
             async def _runner() -> None:
                 await _persist_event_db(enriched)
 
@@ -151,9 +152,7 @@ async def fetch_alignment_events(limit: int = 50) -> list[dict[str, Any]]:
                 if row.followup_status or row.followup_recorded_at:
                     data["followup"] = {
                         "status": row.followup_status,
-                        "recorded_at": row.followup_recorded_at.isoformat()
-                        if row.followup_recorded_at
-                        else None,
+                        "recorded_at": row.followup_recorded_at.isoformat() if row.followup_recorded_at else None,
                     }
                 records.append(data)
             return records

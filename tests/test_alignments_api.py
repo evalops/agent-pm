@@ -69,7 +69,10 @@ def test_alignment_summary_endpoint(monkeypatch):
 
     def fake_summary(limit: int):
         assert limit == 10
-        return ([{"event_id": "evt", "notification": {"status": "success"}}], {"total_events": 1, "status_counts": {"success": 1}})
+        return (
+            [{"event_id": "evt", "notification": {"status": "success"}}],
+            {"total_events": 1, "status_counts": {"success": 1}},
+        )
 
     monkeypatch.setattr(app_module, "get_alignment_summary", fake_summary)
     monkeypatch.setattr(app_module, "record_alignment_export", lambda kind: None)

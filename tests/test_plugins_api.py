@@ -189,7 +189,11 @@ def test_plugins_install_endpoint_from_entry_point(monkeypatch):
     def fake_install(module_ref: str, **kwargs: Any) -> dict[str, Any]:
         captured["module"] = module_ref
         captured["kwargs"] = kwargs
-        return {"name": kwargs.get("name", "warehouse_export"), "enabled": kwargs.get("enabled", False), "config": kwargs.get("config", {})}
+        return {
+            "name": kwargs.get("name", "warehouse_export"),
+            "enabled": kwargs.get("enabled", False),
+            "config": kwargs.get("config", {}),
+        }
 
     monkeypatch.setattr(plugin_registry, "install_plugin", fake_install)
 

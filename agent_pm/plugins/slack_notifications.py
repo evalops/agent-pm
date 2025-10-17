@@ -59,10 +59,7 @@ class SlackAlertsPlugin(PluginBase):
         event_id = event.get("event_id", "n/a")
         link = event.get("notification", {}).get("response", {}).get("permalink")
 
-        message = (
-            f"*Follow-up updated*: `{status}`\n"
-            f"> *Title*: {title}\n> *Event ID*: {event_id}"
-        )
+        message = f"*Follow-up updated*: `{status}`\n> *Title*: {title}\n> *Event ID*: {event_id}"
         if link:
             message += f"\n> <{link}|Slack permalink>"
 

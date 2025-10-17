@@ -189,7 +189,7 @@ def _build_external_context(idea: str, overlapping_goals: list[str]) -> dict[str
         context["jira_project"] = project
         if settings.jira_base_url:
             context["jira_search_url"] = (
-                f"{settings.jira_base_url}/issues/?jql=project%3D{project}%20AND%20text~\"{idea}\""
+                f'{settings.jira_base_url}/issues/?jql=project%3D{project}%20AND%20text~"{idea}"'
             )
     return context
 

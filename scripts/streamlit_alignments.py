@@ -116,7 +116,7 @@ overall_rate = conversion["rates"].get("overall", 0.0)
 colf1, colf2, colf3 = st.columns(3)
 colf1.metric("Follow-ups Logged", followup_total)
 colf2.metric("Distinct Follow-up Outcomes", len(conversion["followup_counts"]))
-colf3.metric("Overall Follow-up Rate", f"{overall_rate*100:.1f}%" if overall_rate else "0%")
+colf3.metric("Overall Follow-up Rate", f"{overall_rate * 100:.1f}%" if overall_rate else "0%")
 
 if conversion["per_notification"]:
     per_df = pd.DataFrame(conversion["per_notification"]).fillna(0).T
@@ -145,8 +145,7 @@ if not df.empty:
         lowered = search_text.lower()
         df = df[
             df.apply(
-                lambda row: lowered in str(row.get("title", "")).lower()
-                or lowered in str(row.get("idea", "")).lower(),
+                lambda row: lowered in str(row.get("title", "")).lower() or lowered in str(row.get("idea", "")).lower(),
                 axis=1,
             )
         ]
@@ -169,9 +168,7 @@ else:
     st.dataframe(
         df_display,
         use_container_width=True,
-        column_config={
-            "slack_link": st.column_config.LinkColumn("Slack", display_text="Open")
-        },
+        column_config={"slack_link": st.column_config.LinkColumn("Slack", display_text="Open")},
     )
 
 st.subheader("Status Trend")
@@ -234,8 +231,7 @@ else:
                 }
             )
         history_lookup[item.get("name")] = {
-            hook: list(entries)
-            for hook, entries in (item.get("hook_history") or {}).items()
+            hook: list(entries) for hook, entries in (item.get("hook_history") or {}).items()
         }
 
     if summary_rows:
@@ -279,9 +275,7 @@ else:
             with st.expander(f"{plugin_name} controls", expanded=False):
                 st.write(f"**Description:** {item.get('description', 'n/a')}")
                 st.write(f"**Hooks:** {', '.join(item.get('hooks', [])) or 'none'}")
-                st.write(
-                    f"**Missing secrets:** {', '.join(item.get('secrets', {}).get('missing', [])) or 'none'}"
-                )
+                st.write(f"**Missing secrets:** {', '.join(item.get('secrets', {}).get('missing', [])) or 'none'}")
                 config_json = json.dumps(item.get("config") or {}, indent=2)
                 with st.form(f"config_form_{plugin_name}"):
                     updated_config = st.text_area("Config (JSON)", value=config_json, height=220)

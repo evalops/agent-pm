@@ -13,7 +13,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Record follow-up status for an alignment event")
     parser.add_argument("event_id", help="Alignment event identifier")
     parser.add_argument("status", help="Follow-up status value (e.g., ack, dismissed)")
-    parser.add_argument("--api-url", default="http://localhost:8000/alignments/{event_id}/followup", help="Follow-up endpoint")
+    parser.add_argument(
+        "--api-url", default="http://localhost:8000/alignments/{event_id}/followup", help="Follow-up endpoint"
+    )
     parser.add_argument("--api-key", dest="api_key", help="API key for authentication", default=None)
     args = parser.parse_args()
 

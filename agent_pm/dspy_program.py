@@ -22,12 +22,12 @@ logger = logging.getLogger(__name__)
 _configuration_error: RuntimeError | None = None
 
 if dspy is not None:  # pragma: no branch - class definitions depend on import success
+
     class PlannerSignature(dspy.Signature):
         title = dspy.InputField(desc="Idea title")
         context = dspy.InputField(desc="Idea context")
         constraints = dspy.InputField(desc="Constraints (comma separated)")
         structured_brief = dspy.OutputField(desc="Optimized planning guidance")
-
 
     class PlannerProgram(dspy.Module):
         def __init__(self) -> None:
@@ -56,9 +56,7 @@ def _configured_program() -> PlannerProgram:
         raise err
 
     if dspy is None or PlannerProgram is None:
-        err = RuntimeError(
-            "DSPy is not installed. Install the 'dspy-ai' package to enable planner compilation."
-        )
+        err = RuntimeError("DSPy is not installed. Install the 'dspy-ai' package to enable planner compilation.")
         if _dspy_import_error is not None:
             err.__cause__ = _dspy_import_error
         _configuration_error = err
