@@ -37,7 +37,10 @@ class FeedbackPlugin(PluginBase):
         self.storage_path.parent.mkdir(parents=True, exist_ok=True)
         if not self.storage_path.exists():
             self.storage_path.write_text("[]", encoding="utf-8")
-        self.router = APIRouter(prefix=self.config.get("route_prefix", "/plugins/feedback"), tags=["feedback"])
+        self.router = APIRouter(
+            prefix=self.config.get("route_prefix", "/plugins/feedback"),
+            tags=["feedback"],
+        )
         self._register_routes()
         self.recent_feedback: list[dict[str, Any]] = []
 
@@ -46,7 +49,9 @@ class FeedbackPlugin(PluginBase):
 
     def _register_routes(self) -> None:
         @self.router.post("", dependencies=[Depends(enforce_rate_limit)])
-        async def submit(entry: FeedbackEntry, _api_key: APIKeyDep = None) -> dict[str, Any]:
+        async def submit(
+            entry: FeedbackEntry, _api_key: APIKeyDep = None
+        ) -> dict[str, Any]:
             self.ensure_enabled()
             saved = self._append(entry)
             record_feedback_submission(entry.source or "unknown")
@@ -63,7 +68,9 @@ class FeedbackPlugin(PluginBase):
         async def clear_feedback(_admin_key: AdminKeyDep = None) -> dict[str, Any]:
             self.ensure_enabled()
             if not settings.dry_run:
-                raise HTTPException(status_code=403, detail="Clearing feedback requires DRY_RUN=true")
+                raise HTTPException(
+                    status_code=403, detail="Clearing feedback requires DRY_RUN=true"
+                )
             self.storage_path.write_text("[]", encoding="utf-8")
             return {"cleared": True}
 

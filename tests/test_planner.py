@@ -35,7 +35,9 @@ class DummyOpenAIClient:
 
 def test_generate_plan_produces_status_digest(monkeypatch):
     monkeypatch.setattr(planner, "openai_client", DummyOpenAIClient())
-    monkeypatch.setattr(planner.vector_memory, "record_prd", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        planner.vector_memory, "record_prd", lambda *args, **kwargs: None
+    )
     monkeypatch.setattr(planner.vector_memory, "to_dataframe", lambda: pd.DataFrame())
     fired_hooks: list[str] = []
     monkeypatch.setattr(
@@ -57,7 +59,9 @@ def test_generate_plan_produces_status_digest(monkeypatch):
         "run_planner_agent",
         lambda prompt, conversation_id=None, enable_tools=False, max_turns=None: plan,
     )
-    review = CriticReview(status="pass", issues=[], recommendations=["Ship weekly digest"], confidence=0.8)
+    review = CriticReview(
+        status="pass", issues=[], recommendations=["Ship weekly digest"], confidence=0.8
+    )
     monkeypatch.setattr(
         planner,
         "run_critic_agent",
@@ -91,7 +95,9 @@ def test_generate_plan_produces_status_digest(monkeypatch):
 
 def test_generate_plan_revision_flow(monkeypatch):
     monkeypatch.setattr(planner, "openai_client", DummyOpenAIClient())
-    monkeypatch.setattr(planner.vector_memory, "record_prd", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        planner.vector_memory, "record_prd", lambda *args, **kwargs: None
+    )
     monkeypatch.setattr(planner.vector_memory, "to_dataframe", lambda: pd.DataFrame())
 
     first_plan = PRDPlan(
@@ -163,7 +169,9 @@ def test_generate_plan_appends_dspy_guidance(monkeypatch):
     monkeypatch.setattr(planner.settings, "use_dspy", True)
     monkeypatch.setattr(planner.settings, "openai_api_key", "test-key")
     monkeypatch.setattr(planner.settings, "dry_run", False)
-    monkeypatch.setattr(planner.vector_memory, "record_prd", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        planner.vector_memory, "record_prd", lambda *args, **kwargs: None
+    )
     monkeypatch.setattr(planner.vector_memory, "to_dataframe", lambda: pd.DataFrame())
 
     plan = PRDPlan(
@@ -198,7 +206,11 @@ def test_generate_plan_appends_dspy_guidance(monkeypatch):
 
     recorded_outcomes: list[str] = []
 
-    monkeypatch.setattr(planner, "record_dspy_guidance", lambda outcome: recorded_outcomes.append(outcome))
+    monkeypatch.setattr(
+        planner,
+        "record_dspy_guidance",
+        lambda outcome: recorded_outcomes.append(outcome),
+    )
 
     captured_prompt = {}
 
@@ -206,7 +218,9 @@ def test_generate_plan_appends_dspy_guidance(monkeypatch):
         captured_prompt["user"] = user_prompt
         return "generated plan"
 
-    monkeypatch.setattr(planner, "openai_client", SimpleNamespace(create_plan=_fake_create_plan))
+    monkeypatch.setattr(
+        planner, "openai_client", SimpleNamespace(create_plan=_fake_create_plan)
+    )
 
     trace = TraceMemory()
 
@@ -228,7 +242,9 @@ def test_generate_plan_appends_dspy_guidance(monkeypatch):
     assert guidance_text in captured_prompt["user"]
     assert result["raw_plan"] == "generated plan"
     assert recorded_outcomes == ["attempted", "succeeded"]
-    guidance_events = [json.loads(e["content"]) for e in trace.dump() if e["role"] == "meta"]
+    guidance_events = [
+        json.loads(e["content"]) for e in trace.dump() if e["role"] == "meta"
+    ]
     assert {"event": "dspy_guidance", "status": "used"} in guidance_events
 
 
@@ -236,7 +252,9 @@ def test_generate_plan_handles_dspy_runtime_error(monkeypatch):
     monkeypatch.setattr(planner.settings, "use_dspy", True)
     monkeypatch.setattr(planner.settings, "openai_api_key", "test-key")
     monkeypatch.setattr(planner.settings, "dry_run", False)
-    monkeypatch.setattr(planner.vector_memory, "record_prd", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        planner.vector_memory, "record_prd", lambda *args, **kwargs: None
+    )
     monkeypatch.setattr(planner.vector_memory, "to_dataframe", lambda: pd.DataFrame())
 
     plan = PRDPlan(
@@ -268,7 +286,11 @@ def test_generate_plan_handles_dspy_runtime_error(monkeypatch):
     monkeypatch.setattr(dspy_program, "compile_brief", _failing_compile_brief)
 
     recorded_outcomes: list[str] = []
-    monkeypatch.setattr(planner, "record_dspy_guidance", lambda outcome: recorded_outcomes.append(outcome))
+    monkeypatch.setattr(
+        planner,
+        "record_dspy_guidance",
+        lambda outcome: recorded_outcomes.append(outcome),
+    )
 
     captured_prompt = {}
 
@@ -276,7 +298,9 @@ def test_generate_plan_handles_dspy_runtime_error(monkeypatch):
         captured_prompt["user"] = user_prompt
         return "plan without guidance"
 
-    monkeypatch.setattr(planner, "openai_client", SimpleNamespace(create_plan=_fake_create_plan))
+    monkeypatch.setattr(
+        planner, "openai_client", SimpleNamespace(create_plan=_fake_create_plan)
+    )
 
     trace = TraceMemory()
 
@@ -299,13 +323,17 @@ def test_generate_plan_handles_dspy_runtime_error(monkeypatch):
     assert "Guidance" not in captured_prompt["user"]
     assert result["raw_plan"] == "plan without guidance"
     assert recorded_outcomes == ["attempted", "failed"]
-    guidance_events = [json.loads(e["content"]) for e in trace.dump() if e["role"] == "meta"]
+    guidance_events = [
+        json.loads(e["content"]) for e in trace.dump() if e["role"] == "meta"
+    ]
     assert {"event": "dspy_guidance", "status": "skipped"} in guidance_events
 
 
 def test_generate_plan_skips_guidance_when_disabled(monkeypatch):
     monkeypatch.setattr(planner.settings, "use_dspy", False)
-    monkeypatch.setattr(planner.vector_memory, "record_prd", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        planner.vector_memory, "record_prd", lambda *args, **kwargs: None
+    )
     monkeypatch.setattr(planner.vector_memory, "to_dataframe", lambda: pd.DataFrame())
 
     plan = PRDPlan(
@@ -331,11 +359,19 @@ def test_generate_plan_skips_guidance_when_disabled(monkeypatch):
     )
 
     recorded_outcomes: list[str] = []
-    monkeypatch.setattr(planner, "record_dspy_guidance", lambda outcome: recorded_outcomes.append(outcome))
+    monkeypatch.setattr(
+        planner,
+        "record_dspy_guidance",
+        lambda outcome: recorded_outcomes.append(outcome),
+    )
 
     trace = TraceMemory()
 
-    monkeypatch.setattr(planner, "openai_client", SimpleNamespace(create_plan=lambda *args, **kwargs: "plan"))
+    monkeypatch.setattr(
+        planner,
+        "openai_client",
+        SimpleNamespace(create_plan=lambda *args, **kwargs: "plan"),
+    )
 
     planner.generate_plan(
         title="No DSPy",
@@ -353,7 +389,9 @@ def test_generate_plan_skips_guidance_when_disabled(monkeypatch):
     )
 
     assert recorded_outcomes == ["disabled"]
-    guidance_events = [json.loads(e["content"]) for e in trace.dump() if e["role"] == "meta"]
+    guidance_events = [
+        json.loads(e["content"]) for e in trace.dump() if e["role"] == "meta"
+    ]
     assert {"event": "dspy_guidance", "status": "skipped"} in guidance_events
 
 
@@ -361,7 +399,9 @@ def test_generate_plan_skips_guidance_without_api_key(monkeypatch):
     monkeypatch.setattr(planner.settings, "use_dspy", True)
     monkeypatch.setattr(planner.settings, "openai_api_key", None)
     monkeypatch.setattr(planner.settings, "dry_run", False)
-    monkeypatch.setattr(planner.vector_memory, "record_prd", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        planner.vector_memory, "record_prd", lambda *args, **kwargs: None
+    )
     monkeypatch.setattr(planner.vector_memory, "to_dataframe", lambda: pd.DataFrame())
 
     plan = PRDPlan(
@@ -387,11 +427,19 @@ def test_generate_plan_skips_guidance_without_api_key(monkeypatch):
     )
 
     recorded_outcomes: list[str] = []
-    monkeypatch.setattr(planner, "record_dspy_guidance", lambda outcome: recorded_outcomes.append(outcome))
+    monkeypatch.setattr(
+        planner,
+        "record_dspy_guidance",
+        lambda outcome: recorded_outcomes.append(outcome),
+    )
 
     trace = TraceMemory()
 
-    monkeypatch.setattr(planner, "openai_client", SimpleNamespace(create_plan=lambda *args, **kwargs: "plan"))
+    monkeypatch.setattr(
+        planner,
+        "openai_client",
+        SimpleNamespace(create_plan=lambda *args, **kwargs: "plan"),
+    )
 
     planner.generate_plan(
         title="Missing Key",
@@ -409,13 +457,17 @@ def test_generate_plan_skips_guidance_without_api_key(monkeypatch):
     )
 
     assert recorded_outcomes == ["skipped"]
-    guidance_events = [json.loads(e["content"]) for e in trace.dump() if e["role"] == "meta"]
+    guidance_events = [
+        json.loads(e["content"]) for e in trace.dump() if e["role"] == "meta"
+    ]
     assert {"event": "dspy_guidance", "status": "skipped"} in guidance_events
 
 
 def test_goal_alignment_appends_note(monkeypatch, capture_alignment_events):
     monkeypatch.setattr(planner.settings, "use_dspy", False)
-    monkeypatch.setattr(planner.vector_memory, "record_prd", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        planner.vector_memory, "record_prd", lambda *args, **kwargs: None
+    )
 
     alignment_df = pd.DataFrame(
         [
@@ -430,9 +482,13 @@ def test_goal_alignment_appends_note(monkeypatch, capture_alignment_events):
     monkeypatch.setattr(
         planner.embeddings,
         "generate_embedding_sync",
-        lambda text, model="text-embedding-3-small": [1.0, 0.0] if "visibility" in text.lower() else [0.0, 1.0],
+        lambda text, model="text-embedding-3-small": (
+            [1.0, 0.0] if "visibility" in text.lower() else [0.0, 1.0]
+        ),
     )
-    monkeypatch.setattr(planner.embeddings, "cosine_similarity", lambda a, b: 0.95 if a == b else 0.1)
+    monkeypatch.setattr(
+        planner.embeddings, "cosine_similarity", lambda a, b: 0.95 if a == b else 0.1
+    )
 
     planner._alignment_history.clear()
     planner._alignment_history_set.clear()
@@ -451,13 +507,19 @@ def test_goal_alignment_appends_note(monkeypatch, capture_alignment_events):
     monkeypatch.setattr(
         planner,
         "run_critic_agent",
-        lambda *args, **kwargs: CriticReview(status="pass", issues=[], recommendations=[], confidence=0.9),
+        lambda *args, **kwargs: CriticReview(
+            status="pass", issues=[], recommendations=[], confidence=0.9
+        ),
     )
 
     captured_prompt = {}
     notifications: list[tuple[tuple[str, ...], dict[str, object]]] = []
     recorded_statuses: list[str] = []
-    monkeypatch.setattr(planner, "record_alignment_notification", lambda status: recorded_statuses.append(status))
+    monkeypatch.setattr(
+        planner,
+        "record_alignment_notification",
+        lambda status: recorded_statuses.append(status),
+    )
 
     def _fake_notify(*args, **kwargs):
         notifications.append((args, kwargs))
@@ -470,7 +532,9 @@ def test_goal_alignment_appends_note(monkeypatch, capture_alignment_events):
         captured_prompt["user"] = user_prompt
         return "plan"
 
-    monkeypatch.setattr(planner, "openai_client", SimpleNamespace(create_plan=_fake_create_plan))
+    monkeypatch.setattr(
+        planner, "openai_client", SimpleNamespace(create_plan=_fake_create_plan)
+    )
 
     trace = TraceMemory()
 
@@ -491,8 +555,12 @@ def test_goal_alignment_appends_note(monkeypatch, capture_alignment_events):
 
     assert "Existing alignment signal:" in captured_prompt["user"]
     assert "Visibility OKRs" in captured_prompt["user"]
-    alignment_events = [json.loads(e["content"]) for e in trace.dump() if e["role"] == "meta"]
-    matching_events = [e for e in alignment_events if e.get("event") == "goal_alignment"]
+    alignment_events = [
+        json.loads(e["content"]) for e in trace.dump() if e["role"] == "meta"
+    ]
+    matching_events = [
+        e for e in alignment_events if e.get("event") == "goal_alignment"
+    ]
     assert matching_events
     assert notifications and notifications[0][0][0] == "Visibility Initiative"
 
@@ -524,9 +592,13 @@ def test_notify_alignment_respects_configuration(monkeypatch):
     monkeypatch.setattr(planner.slack_client, "post_digest", _fake_post)
 
     statuses: list[str] = []
-    monkeypatch.setattr(planner, "record_alignment_notification", lambda status: statuses.append(status))
+    monkeypatch.setattr(
+        planner, "record_alignment_notification", lambda status: statuses.append(status)
+    )
 
-    status, meta = planner._notify_alignment("Test Initiative", "Note", [{"idea": "Other"}])
+    status, meta = planner._notify_alignment(
+        "Test Initiative", "Note", [{"idea": "Other"}]
+    )
 
     assert calls == []
     assert status == "disabled"
@@ -552,10 +624,16 @@ def test_notify_alignment_deduplicates_pairs(monkeypatch):
     monkeypatch.setattr(planner.slack_client, "post_digest", _fake_post)
 
     statuses: list[str] = []
-    monkeypatch.setattr(planner, "record_alignment_notification", lambda status: statuses.append(status))
+    monkeypatch.setattr(
+        planner, "record_alignment_notification", lambda status: statuses.append(status)
+    )
 
-    first_status, first_meta = planner._notify_alignment("Test Initiative", "Note", [{"idea": "Other"}])
-    second_status, second_meta = planner._notify_alignment("Test Initiative", "Another note", [{"idea": "Other"}])
+    first_status, first_meta = planner._notify_alignment(
+        "Test Initiative", "Note", [{"idea": "Other"}]
+    )
+    second_status, second_meta = planner._notify_alignment(
+        "Test Initiative", "Another note", [{"idea": "Other"}]
+    )
 
     assert len(calls) == 1
     assert first_status == "success"

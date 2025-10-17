@@ -48,12 +48,12 @@ _alignment_history: deque[tuple[str, str]] = deque(maxlen=_ALIGNMENT_HISTORY_MAX
 _alignment_history_set: set[tuple[str, str]] = set()
 
 
-def build_user_prompt(title: str, context: str, constraints: list[str] | None = None) -> str:
+def build_user_prompt(
+    title: str, context: str, constraints: list[str] | None = None
+) -> str:
     constraints = constraints or []
     constraint_text = "\n".join(f"- {c}" for c in constraints)
-    return (
-        f"Turn this idea into a PRD + ticket plan:\nTitle: {title}\nContext: {context}\nConstraints:\n{constraint_text}"
-    )
+    return f"Turn this idea into a PRD + ticket plan:\nTitle: {title}\nContext: {context}\nConstraints:\n{constraint_text}"
 
 
 def build_revision_prompt(
@@ -65,7 +65,9 @@ def build_revision_prompt(
 ) -> str:
     plan_json = plan.model_dump_json(indent=2)
     issues = "\n".join(f"- {item}" for item in (review.issues or [])) or "- None"
-    recommendations = "\n".join(f"- {item}" for item in (review.recommendations or [])) or "- None"
+    recommendations = (
+        "\n".join(f"- {item}" for item in (review.recommendations or [])) or "- None"
+    )
     return (
         "Revise the following PRD plan to address reviewer feedback. Maintain the JSON schema with"
         " keys: problem, goals, nongoals, requirements, acceptance, risks, users."
@@ -90,7 +92,11 @@ def _extract_goal_section(prd_text: str) -> list[str]:
             break
         if not capture:
             continue
-        goal = stripped.lstrip("-• ").strip() if stripped.startswith(("-", "•")) else stripped
+        goal = (
+            stripped.lstrip("-• ").strip()
+            if stripped.startswith(("-", "•"))
+            else stripped
+        )
         if goal:
             extracted.append(goal)
     return extracted
@@ -156,7 +162,9 @@ def _collect_related_goals(title: str, goals: list[str]) -> list[dict[str, objec
                 "idea": existing_title,
                 "overlapping_goals": overlapping,
                 "similarity": round(similarity, 3),
-                "external_context": _build_external_context(existing_title, overlapping),
+                "external_context": _build_external_context(
+                    existing_title, overlapping
+                ),
             }
         )
 
@@ -170,19 +178,30 @@ def _build_alignment_note(suggestions: list[dict[str, object]]) -> str:
         idea = item.get("idea", "Unknown initiative")
         goals_str = ", ".join(item.get("overlapping_goals", []))
         similarity = item.get("similarity")
-        suffix = f" (similarity {similarity:.2f})" if isinstance(similarity, (int, float)) else ""
+        suffix = (
+            f" (similarity {similarity:.2f})"
+            if isinstance(similarity, (int, float))
+            else ""
+        )
         lines.append(f"- {idea}{suffix}: {goals_str}")
     return "\n".join(lines)
 
 
-def _build_external_context(idea: str, overlapping_goals: list[str]) -> dict[str, object]:
+def _build_external_context(
+    idea: str, overlapping_goals: list[str]
+) -> dict[str, object]:
     context: dict[str, object] = {
         "recommendation": f"Coordinate with {idea} owners on goals: {', '.join(overlapping_goals)}",
     }
     if slack_client.channel:
         context["slack_channel"] = slack_client.channel
-        context["slack_link_hint"] = f"https://slack.com/app_redirect?channel={slack_client.channel}"
-    if settings.slack_status_channel and settings.slack_status_channel != slack_client.channel:
+        context["slack_link_hint"] = (
+            f"https://slack.com/app_redirect?channel={slack_client.channel}"
+        )
+    if (
+        settings.slack_status_channel
+        and settings.slack_status_channel != slack_client.channel
+    ):
         context["status_channel"] = settings.slack_status_channel
     if settings.allowed_projects:
         project = settings.allowed_projects[0]
@@ -294,7 +313,9 @@ def _maybe_get_dspy_guidance(title: str, context: str, constraints: list[str]) -
 
     if not settings.openai_api_key:
         if settings.dry_run:
-            logger.info("DSPy guidance skipped: running in dry-run mode without OPENAI_API_KEY")
+            logger.info(
+                "DSPy guidance skipped: running in dry-run mode without OPENAI_API_KEY"
+            )
         else:
             logger.warning("DSPy guidance skipped: OPENAI_API_KEY is not configured")
         record_dspy_guidance("skipped")
@@ -385,7 +406,9 @@ def generate_plan(
                 logger.warning("Planner guardrail blocked request: %s", exc)
                 raise
             except Exception as exc:  # pragma: no cover - planner fallback path
-                logger.warning("Planner Agents SDK failed, falling back to defaults: %s", exc)
+                logger.warning(
+                    "Planner Agents SDK failed, falling back to defaults: %s", exc
+                )
                 plan_result = None
 
         if plan_result is None:
@@ -436,7 +459,9 @@ def generate_plan(
             attempt,
             "; ".join(critic_review.issues or []),
         )
-        prompt = build_revision_prompt(title, context, constraint_list, plan_result, critic_review)
+        prompt = build_revision_prompt(
+            title, context, constraint_list, plan_result, critic_review
+        )
 
     guidance = _maybe_get_dspy_guidance(title, context, constraint_list)
 
@@ -464,7 +489,9 @@ def generate_plan(
         )
         alignment_note = _build_alignment_note(alignment_suggestions)
         user_prompt = f"{user_prompt}\n\nExisting alignment signal:\n{alignment_note}"
-        alignment_status, notification_meta = _notify_alignment(title, alignment_note, alignment_suggestions)
+        alignment_status, notification_meta = _notify_alignment(
+            title, alignment_note, alignment_suggestions
+        )
         logger.info("Goal alignment note appended to planner prompt")
     else:
         record_alignment_notification("none")

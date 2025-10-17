@@ -30,8 +30,16 @@ def test_write_csv_creates_file(tmp_path, monkeypatch):
 
 def test_write_csv_filters_followup(tmp_path, monkeypatch):
     events = [
-        {"event_id": "evt-1", "notification": {"status": "success"}, "followup": {"status": "ack"}},
-        {"event_id": "evt-2", "notification": {"status": "success"}, "followup": {"status": "dismissed"}},
+        {
+            "event_id": "evt-1",
+            "notification": {"status": "success"},
+            "followup": {"status": "ack"},
+        },
+        {
+            "event_id": "evt-2",
+            "notification": {"status": "success"},
+            "followup": {"status": "dismissed"},
+        },
     ]
 
     captured: list[dict[str, object]] = []

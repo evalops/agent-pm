@@ -21,11 +21,15 @@ def _get_plugin_registry_local() -> list[dict[str, Any]]:
         return []
 
 
-def fetch_from_api(api_url: str, api_key: str | None, limit: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def fetch_from_api(
+    api_url: str, api_key: str | None, limit: int
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     headers = {"Accept": "application/json"}
     if api_key:
         headers["X-API-Key"] = api_key
-    response = requests.get(api_url, params={"limit": limit}, headers=headers, timeout=10)
+    response = requests.get(
+        api_url, params={"limit": limit}, headers=headers, timeout=10
+    )
     response.raise_for_status()
     payload = response.json()
     events = payload.get("events", [])
@@ -92,7 +96,9 @@ def flatten_alignment_records(events: list[dict[str, Any]]) -> list[dict[str, An
                 "similarity": None,
                 "slack_link": None,
                 "followup_status": (event.get("followup") or {}).get("status"),
-                "followup_recorded_at": (event.get("followup") or {}).get("recorded_at"),
+                "followup_recorded_at": (event.get("followup") or {}).get(
+                    "recorded_at"
+                ),
             }
             if isinstance(suggestion, dict):
                 external = suggestion.get("external_context", {}) or {}
@@ -115,7 +121,11 @@ def status_trend_by_day(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for event in events:
         created = event.get("created_at")
         try:
-            date_key = datetime.fromisoformat(created).date().isoformat() if created else "unknown"
+            date_key = (
+                datetime.fromisoformat(created).date().isoformat()
+                if created
+                else "unknown"
+            )
         except ValueError:
             date_key = "unknown"
         status = (event.get("notification") or {}).get("status", "unknown")
@@ -174,7 +184,9 @@ def followup_conversion(events: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "totals": dict(totals),
         "followup_counts": dict(followups),
-        "per_notification": {status: dict(counter) for status, counter in per_notification.items()},
+        "per_notification": {
+            status: dict(counter) for status, counter in per_notification.items()
+        },
         "rates": rates,
     }
 

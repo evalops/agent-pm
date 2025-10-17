@@ -49,7 +49,11 @@ class PluginRegistry:
                 plugin.on_enable()
             except Exception as exc:  # pragma: no cover - defensive guard
                 self._append_error(plugin.name, str(exc))
-                logger.exception("Plugin %s on_enable failed during bootstrap", plugin.name, exc_info=exc)
+                logger.exception(
+                    "Plugin %s on_enable failed during bootstrap",
+                    plugin.name,
+                    exc_info=exc,
+                )
 
     # ------------------------------------------------------------------
     # Loading & persistence
@@ -135,7 +139,9 @@ class PluginRegistry:
             index = error.get("index", len(self._positions) + idx)
             self._positions.setdefault(name, index)
             self._invalid_entries[name] = entry
-            self._errors.setdefault(name, []).append(error.get("error", "invalid configuration"))
+            self._errors.setdefault(name, []).append(
+                error.get("error", "invalid configuration")
+            )
             if name not in self._metadata:
                 metadata = PluginMetadata(
                     name=name,
@@ -146,7 +152,10 @@ class PluginRegistry:
                 )
                 self._metadata[name] = metadata
 
-        self._order = [name for name, _ in sorted(self._positions.items(), key=lambda item: item[1])]
+        self._order = [
+            name
+            for name, _ in sorted(self._positions.items(), key=lambda item: item[1])
+        ]
 
     def _read_config(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         if not self.path.exists():
@@ -154,7 +163,11 @@ class PluginRegistry:
         return load_plugin_config(self.path)
 
     def _write_config(self) -> None:
-        entry_map = {entry.get("name"): dict(entry) for entry in self._entries if entry.get("name")}
+        entry_map = {
+            entry.get("name"): dict(entry)
+            for entry in self._entries
+            if entry.get("name")
+        }
         combined: list[tuple[int, dict[str, Any]]] = []
 
         for name, entry in entry_map.items():
@@ -201,7 +214,9 @@ class PluginRegistry:
 
     def reload(self) -> None:
         previous_plugins = self._plugins.copy()
-        previously_enabled = {name: plugin.active for name, plugin in previous_plugins.items()}
+        previously_enabled = {
+            name: plugin.active for name, plugin in previous_plugins.items()
+        }
         self._load()
 
         for name, plugin in self._plugins.items():
@@ -259,7 +274,9 @@ class PluginRegistry:
         if meta:
             data = meta.__dict__.copy()
         else:
-            entry = next((item for item in self._entries if item.get("name") == name), None)
+            entry = next(
+                (item for item in self._entries if item.get("name") == name), None
+            )
             if entry is None:
                 raise KeyError(f"Plugin {name} not registered")
             data = {
@@ -275,7 +292,9 @@ class PluginRegistry:
         data["active"] = bool(plugin and plugin.active)
         data["hook_stats"] = self._format_hook_stats(name)
         history = self._hook_history.get(name, {})
-        data["hook_history"] = {hook: list(entries) for hook, entries in history.items()}
+        data["hook_history"] = {
+            hook: list(entries) for hook, entries in history.items()
+        }
         data["errors"] = list(self._errors.get(name, []))
         data["invalid"] = name in self._invalid_entries or name not in self._plugins
         if plugin:
@@ -343,7 +362,9 @@ class PluginRegistry:
                 plugin_cls = loaded.__class__
             if plugin_cls is not None:
                 try:
-                    instance = plugin_cls({}) if not isinstance(loaded, PluginBase) else loaded
+                    instance = (
+                        plugin_cls({}) if not isinstance(loaded, PluginBase) else loaded
+                    )
                 except Exception as exc:  # pragma: no cover - defensive guard
                     info["error"] = str(exc)
                 else:
@@ -372,9 +393,13 @@ class PluginRegistry:
         try:
             instance = plugin_cls(config or {})
         except Exception as exc:  # pragma: no cover - defensive guard
-            raise ValueError(f"Failed to instantiate plugin {module_ref}: {exc}") from exc
+            raise ValueError(
+                f"Failed to instantiate plugin {module_ref}: {exc}"
+            ) from exc
 
-        plugin_name = name or getattr(instance, "name", None) or plugin_cls.__name__.lower()
+        plugin_name = (
+            name or getattr(instance, "name", None) or plugin_cls.__name__.lower()
+        )
         if any(entry.get("name") == plugin_name for entry in self._entries):
             raise ValueError(f"Plugin {plugin_name} already configured")
 
@@ -382,8 +407,16 @@ class PluginRegistry:
             "name": plugin_name,
             "module": module_ref,
             "enabled": bool(enabled),
-            "description": description if description is not None else getattr(instance, "description", ""),
-            "hooks": list(hooks) if hooks is not None else list(getattr(instance, "hooks", [])),
+            "description": (
+                description
+                if description is not None
+                else getattr(instance, "description", "")
+            ),
+            "hooks": (
+                list(hooks)
+                if hooks is not None
+                else list(getattr(instance, "hooks", []))
+            ),
             "config": config or {},
         }
         self._entries.append(entry)
@@ -415,7 +448,9 @@ class PluginRegistry:
         plugin = self._plugins.get(name)
         return bool(plugin and plugin.active)
 
-    def fire(self, hook: str, *args, source: PluginBase | None = None, **kwargs) -> None:
+    def fire(
+        self, hook: str, *args, source: PluginBase | None = None, **kwargs
+    ) -> None:
         for plugin in self._plugins.values():
             if source is not None and plugin is source:
                 continue
@@ -447,7 +482,9 @@ class PluginRegistry:
                         await coro
                     except Exception as async_exc:  # pragma: no cover - defensive guard
                         duration_ms = (time.perf_counter() - started) * 1000
-                        self._handle_hook_failure(plugin_ref, hook, stats, duration_ms, async_exc)
+                        self._handle_hook_failure(
+                            plugin_ref, hook, stats, duration_ms, async_exc
+                        )
                     else:
                         duration_ms = (time.perf_counter() - started) * 1000
                         self._handle_hook_success(plugin_ref, hook, stats, duration_ms)
@@ -523,7 +560,9 @@ class PluginRegistry:
                 "total_duration_ms": round(total_duration, 3),
                 "last_duration_ms": round(values.get("last_duration_ms", 0.0), 3),
             }
-            item["avg_duration_ms"] = round(total_duration / invocations, 3) if invocations else 0.0
+            item["avg_duration_ms"] = (
+                round(total_duration / invocations, 3) if invocations else 0.0
+            )
             formatted[hook] = item
         return formatted
 
@@ -535,7 +574,9 @@ class PluginRegistry:
         duration_ms: float,
     ) -> None:
         hook_stats["last_duration_ms"] = round(duration_ms, 3)
-        hook_stats["total_duration_ms"] = hook_stats.get("total_duration_ms", 0.0) + duration_ms
+        hook_stats["total_duration_ms"] = (
+            hook_stats.get("total_duration_ms", 0.0) + duration_ms
+        )
         self._record_hook_history(plugin.name, hook, "success", duration_ms)
 
     def _handle_hook_failure(
@@ -548,7 +589,9 @@ class PluginRegistry:
     ) -> None:
         hook_stats["failures"] = hook_stats.get("failures", 0) + 1
         hook_stats["last_duration_ms"] = round(duration_ms, 3)
-        hook_stats["total_duration_ms"] = hook_stats.get("total_duration_ms", 0.0) + duration_ms
+        hook_stats["total_duration_ms"] = (
+            hook_stats.get("total_duration_ms", 0.0) + duration_ms
+        )
         self._append_error(plugin.name, str(exc))
         record_plugin_hook_failure(plugin.name, hook)
         self._record_hook_history(plugin.name, hook, "error", duration_ms, error=exc)

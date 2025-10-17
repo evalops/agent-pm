@@ -137,7 +137,9 @@ async def fetch_alignment_events(limit: int = 50) -> list[dict[str, Any]]:
         session_factory = get_session_factory()
         async with session_factory() as session:
             result = await session.execute(
-                select(AlignmentEvent).order_by(AlignmentEvent.created_at.desc()).limit(limit)
+                select(AlignmentEvent)
+                .order_by(AlignmentEvent.created_at.desc())
+                .limit(limit)
             )
             records: list[dict[str, Any]] = []
             for row in result.scalars():
@@ -146,13 +148,20 @@ async def fetch_alignment_events(limit: int = 50) -> list[dict[str, Any]]:
                     "title": row.title,
                     "context": row.context,
                     "suggestions": row.suggestions or [],
-                    "notification": row.notification_meta or {"status": row.notification_status},
-                    "created_at": row.created_at.isoformat() if row.created_at else None,
+                    "notification": row.notification_meta
+                    or {"status": row.notification_status},
+                    "created_at": (
+                        row.created_at.isoformat() if row.created_at else None
+                    ),
                 }
                 if row.followup_status or row.followup_recorded_at:
                     data["followup"] = {
                         "status": row.followup_status,
-                        "recorded_at": row.followup_recorded_at.isoformat() if row.followup_recorded_at else None,
+                        "recorded_at": (
+                            row.followup_recorded_at.isoformat()
+                            if row.followup_recorded_at
+                            else None
+                        ),
                     }
                 records.append(data)
             return records
@@ -187,7 +196,9 @@ def summarize_alignment_events(events: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def get_alignment_summary(limit: int = 50) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def get_alignment_summary(
+    limit: int = 50,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     events = asyncio.run(fetch_alignment_events(limit))
     summary = summarize_alignment_events(events)
     return events, summary
@@ -200,7 +211,9 @@ async def _persist_followup_db(event_id: str, status: str) -> bool:
     session_factory = get_session_factory()
     async with session_factory() as session:
         result = await session.execute(
-            select(AlignmentEvent).where(AlignmentEvent.event_id == event_id).with_for_update()
+            select(AlignmentEvent)
+            .where(AlignmentEvent.event_id == event_id)
+            .with_for_update()
         )
         record = result.scalar_one_or_none()
         if record is None:
@@ -238,7 +251,9 @@ async def record_alignment_followup_event(event_id: str, status: str) -> bool:
                 from .alignment_stream import broadcast_alignment_event
 
                 broadcast_alignment_event(captured)
-            plugin_registry.fire("post_alignment_followup", event=captured, status=status)
+            plugin_registry.fire(
+                "post_alignment_followup", event=captured, status=status
+            )
         return True
     return False
 

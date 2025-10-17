@@ -35,8 +35,11 @@ if dspy is not None:  # pragma: no branch - class definitions depend on import s
             self.generate = dspy.Predict(PlannerSignature)
 
         def forward(self, title: str, context: str, constraints: str) -> str:
-            result = self.generate(title=title, context=context, constraints=constraints)
+            result = self.generate(
+                title=title, context=context, constraints=constraints
+            )
             return result.structured_brief
+
 else:
     PlannerSignature = None
     PlannerProgram = None
@@ -56,7 +59,9 @@ def _configured_program() -> PlannerProgram:
         raise err
 
     if dspy is None or PlannerProgram is None:
-        err = RuntimeError("DSPy is not installed. Install the 'dspy-ai' package to enable planner compilation.")
+        err = RuntimeError(
+            "DSPy is not installed. Install the 'dspy-ai' package to enable planner compilation."
+        )
         if _dspy_import_error is not None:
             err.__cause__ = _dspy_import_error
         _configuration_error = err

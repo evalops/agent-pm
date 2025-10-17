@@ -31,7 +31,9 @@ def broadcast_alignment_event(event: dict[str, Any]) -> None:
     for queue, loop in list(_subscribers):
 
         def _put(evt=event, q=queue) -> None:
-            with suppress(asyncio.QueueFull):  # pragma: no cover - queues are unbounded by default
+            with suppress(
+                asyncio.QueueFull
+            ):  # pragma: no cover - queues are unbounded by default
                 q.put_nowait(evt)
 
         try:

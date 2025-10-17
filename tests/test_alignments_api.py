@@ -10,7 +10,9 @@ def test_alignments_endpoint(monkeypatch):
         {
             "title": "Alpha",
             "context": "Context",
-            "suggestions": [{"idea": "Beta", "overlapping_goals": ["Improve"], "similarity": 0.9}],
+            "suggestions": [
+                {"idea": "Beta", "overlapping_goals": ["Improve"], "similarity": 0.9}
+            ],
             "notification": {"status": "success"},
             "created_at": "2024-01-01T00:00:00",
         }
@@ -24,7 +26,11 @@ def test_alignments_endpoint(monkeypatch):
     monkeypatch.setattr(
         app_module,
         "summarize_alignment_events",
-        lambda events: {"total_events": len(events), "status_counts": {"success": 1}, "top_ideas": []},
+        lambda events: {
+            "total_events": len(events),
+            "status_counts": {"success": 1},
+            "top_ideas": [],
+        },
     )
 
     response = client.get("/alignments?limit=5")
@@ -57,7 +63,13 @@ def test_alignments_websocket_stream(monkeypatch):
     from agent_pm.alignment_stream import broadcast_alignment_event
 
     with client.websocket_connect("/alignments/ws") as websocket:
-        broadcast_alignment_event({"event_id": "evt-1", "title": "Realtime", "notification": {"status": "success"}})
+        broadcast_alignment_event(
+            {
+                "event_id": "evt-1",
+                "title": "Realtime",
+                "notification": {"status": "success"},
+            }
+        )
         message = websocket.receive_json()
 
     assert message["title"] == "Realtime"

@@ -53,8 +53,12 @@ async def get_job_status(pool: ArqRedis, job_id: str) -> dict[str, Any] | None:
         "job_id": job_id,
         "status": job_result.job_status.value if job_result.job_status else "unknown",
         "result": job_result.result,
-        "start_time": job_result.start_time.isoformat() if job_result.start_time else None,
-        "finish_time": job_result.finish_time.isoformat() if job_result.finish_time else None,
+        "start_time": (
+            job_result.start_time.isoformat() if job_result.start_time else None
+        ),
+        "finish_time": (
+            job_result.finish_time.isoformat() if job_result.finish_time else None
+        ),
     }
 
 

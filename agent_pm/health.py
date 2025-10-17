@@ -49,12 +49,26 @@ async def check_agents_config() -> dict[str, Any]:
     try:
         cfg_path = settings.agents_config_path
         if not cfg_path.exists():
-            return {"status": "warn", "service": "agents_config", "detail": "config not found"}
+            return {
+                "status": "warn",
+                "service": "agents_config",
+                "detail": "config not found",
+            }
         with open(cfg_path) as f:
             data = yaml.safe_load(f)
-        if not isinstance(data, dict) or ("planner" not in data and "critic" not in data):
-            return {"status": "error", "service": "agents_config", "detail": "invalid structure"}
-        return {"status": "ok", "service": "agents_config", "profiles": list(data.keys())}
+        if not isinstance(data, dict) or (
+            "planner" not in data and "critic" not in data
+        ):
+            return {
+                "status": "error",
+                "service": "agents_config",
+                "detail": "invalid structure",
+            }
+        return {
+            "status": "ok",
+            "service": "agents_config",
+            "profiles": list(data.keys()),
+        }
     except Exception as exc:
         logger.warning("Agents config health check failed: %s", exc)
         return {"status": "error", "service": "agents_config", "detail": str(exc)}

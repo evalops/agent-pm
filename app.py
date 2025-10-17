@@ -29,15 +29,36 @@ from agent_pm.health import check_all_dependencies
 from agent_pm.logging_config import configure_logging
 from agent_pm.memory import TraceMemory
 from agent_pm.metrics import latest_metrics, record_alignment_export
-from agent_pm.models import BatchIdea, Idea, JiraIssuePayload, ReviewEvent, SlackDigest, TicketPlan
+from agent_pm.models import (
+    BatchIdea,
+    Idea,
+    JiraIssuePayload,
+    ReviewEvent,
+    SlackDigest,
+    TicketPlan,
+)
 from agent_pm.planner import generate_plan
 from agent_pm.plugins import plugin_registry
 from agent_pm.prd_changelog import generate_changelog
-from agent_pm.prd_versions import approve_version, create_branch, create_version, get_blame, get_version_history
+from agent_pm.prd_versions import (
+    approve_version,
+    create_branch,
+    create_version,
+    get_blame,
+    get_version_history,
+)
 from agent_pm.procedures import loader as procedure_loader
-from agent_pm.rate_limit import enforce_concurrency_limit, enforce_rate_limit, release_concurrency
+from agent_pm.rate_limit import (
+    enforce_concurrency_limit,
+    enforce_rate_limit,
+    release_concurrency,
+)
 from agent_pm.settings import settings
-from agent_pm.structured_logging import configure_structured_logging, get_correlation_id, set_correlation_id
+from agent_pm.structured_logging import (
+    configure_structured_logging,
+    get_correlation_id,
+    set_correlation_id,
+)
 from agent_pm.task_queue import TaskQueue, TaskStatus
 from agent_pm.tools import registry
 from agent_pm.trace_export import schedule_trace_export
@@ -100,10 +121,16 @@ async def procedures() -> dict[str, Any]:
     return procedure_loader.load()
 
 
-@app.post("/plan", dependencies=[Depends(enforce_rate_limit), Depends(enforce_concurrency_limit)])
+@app.post(
+    "/plan",
+    dependencies=[Depends(enforce_rate_limit), Depends(enforce_concurrency_limit)],
+)
 async def plan(idea: Idea, _api_key: APIKeyDep = None) -> dict[str, Any]:
     set_correlation_id(str(uuid.uuid4()))
-    logger.info("Plan request received", extra={"title": idea.title, "correlation_id": get_correlation_id()})
+    logger.info(
+        "Plan request received",
+        extra={"title": idea.title, "correlation_id": get_correlation_id()},
+    )
     try:
         return await _plan_impl(idea)
     finally:
@@ -111,7 +138,9 @@ async def plan(idea: Idea, _api_key: APIKeyDep = None) -> dict[str, Any]:
 
 
 @app.get("/alignments", dependencies=[Depends(enforce_rate_limit)])
-async def list_alignments(limit: int = 50, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
+async def list_alignments(
+    limit: int = 50, _admin_key: AdminKeyDep = None
+) -> dict[str, Any]:
     events = await fetch_alignment_events(limit)
     summary = summarize_alignment_events(events)
     return {"events": events, "summary": summary}
@@ -132,7 +161,9 @@ async def alignments_ws(websocket: WebSocket) -> None:
 
 
 @app.post("/alignments/{event_id}/followup", dependencies=[Depends(enforce_rate_limit)])
-async def alignment_followup(event_id: str, payload: FollowupUpdate, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
+async def alignment_followup(
+    event_id: str, payload: FollowupUpdate, _admin_key: AdminKeyDep = None
+) -> dict[str, Any]:
     updated = await record_alignment_followup_event(event_id, payload.status)
     if not updated:
         raise HTTPException(status_code=404, detail="Alignment event not found")
@@ -140,7 +171,9 @@ async def alignment_followup(event_id: str, payload: FollowupUpdate, _admin_key:
 
 
 @app.get("/alignments/summary", dependencies=[Depends(enforce_rate_limit)])
-async def alignment_summary(limit: int = 100, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
+async def alignment_summary(
+    limit: int = 100, _admin_key: AdminKeyDep = None
+) -> dict[str, Any]:
     events, summary = get_alignment_summary(limit)
     record_alignment_export("summary")
     return {"events": events, "summary": summary}
@@ -211,7 +244,9 @@ class PluginInstallRequest(BaseModel):
 
 
 @app.post("/plugins/{name}/config", dependencies=[Depends(enforce_rate_limit)])
-async def update_plugin_config(name: str, update: PluginConfigUpdate, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
+async def update_plugin_config(
+    name: str, update: PluginConfigUpdate, _admin_key: AdminKeyDep = None
+) -> dict[str, Any]:
     try:
         metadata = plugin_registry.update_config(name, update.config)
     except KeyError as exc:
@@ -222,17 +257,23 @@ async def update_plugin_config(name: str, update: PluginConfigUpdate, _admin_key
 
 
 @app.post("/plugins/install", dependencies=[Depends(enforce_rate_limit)])
-async def install_plugin_endpoint(request: PluginInstallRequest, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
+async def install_plugin_endpoint(
+    request: PluginInstallRequest, _admin_key: AdminKeyDep = None
+) -> dict[str, Any]:
     module_ref = request.module
     plugin_name = request.name
     description = request.description
     hooks = None
 
     if request.entry_point and not module_ref:
-        catalogue = {item["entry_point"]: item for item in plugin_registry.discover_plugins()}
+        catalogue = {
+            item["entry_point"]: item for item in plugin_registry.discover_plugins()
+        }
         info = catalogue.get(request.entry_point)
         if info is None:
-            raise HTTPException(status_code=404, detail=f"Entry point {request.entry_point} not found")
+            raise HTTPException(
+                status_code=404, detail=f"Entry point {request.entry_point} not found"
+            )
         module_ref = info["module"]
         if plugin_name is None:
             plugin_name = info.get("plugin_name")
@@ -241,7 +282,9 @@ async def install_plugin_endpoint(request: PluginInstallRequest, _admin_key: Adm
         hooks = info.get("hooks")
 
     if not module_ref:
-        raise HTTPException(status_code=400, detail="Unable to determine module reference for plugin")
+        raise HTTPException(
+            status_code=400, detail="Unable to determine module reference for plugin"
+        )
 
     try:
         metadata = plugin_registry.install_plugin(
@@ -316,7 +359,9 @@ async def plan_batch(batch: BatchIdea, _api_key: APIKeyDep = None) -> dict[str, 
     errors = []
     for idx, result in enumerate(results):
         if isinstance(result, Exception):
-            errors.append({"index": idx, "title": batch.ideas[idx].title, "error": str(result)})
+            errors.append(
+                {"index": idx, "title": batch.ideas[idx].title, "error": str(result)}
+            )
         else:
             plans.append(result)
 
@@ -324,7 +369,9 @@ async def plan_batch(batch: BatchIdea, _api_key: APIKeyDep = None) -> dict[str, 
 
 
 @app.post("/ticket")
-async def ticket(plan: TicketPlan = Depends(ensure_project_allowed), _api_key: APIKeyDep = None) -> dict[str, Any]:
+async def ticket(
+    plan: TicketPlan = Depends(ensure_project_allowed), _api_key: APIKeyDep = None
+) -> dict[str, Any]:
     created: list[Any] = []
     async with rate_limited(_jira_lock):
         for story in plan.stories:
@@ -373,7 +420,9 @@ async def reload_agents(_admin_key: AdminKeyDep = None) -> dict[str, str]:
 
 
 @app.get("/operators/traces")
-async def operator_list_traces(limit: int = 5, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
+async def operator_list_traces(
+    limit: int = 5, _admin_key: AdminKeyDep = None
+) -> dict[str, Any]:
     try:
         entries = list_trace_files(limit)
     except ValueError as exc:  # pragma: no cover - defensive
@@ -388,7 +437,9 @@ async def operator_get_trace(
     try:
         summary = summarize_trace(trace_name)
     except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=f"Trace not found: {trace_name}") from exc
+        raise HTTPException(
+            status_code=404, detail=f"Trace not found: {trace_name}"
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not include_events:
@@ -423,7 +474,9 @@ async def get_task(task_id: str, _admin_key: AdminKeyDep = None) -> dict[str, An
 
 
 @app.get("/tasks")
-async def list_tasks(status: str | None = None, limit: int = 50, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
+async def list_tasks(
+    status: str | None = None, limit: int = 50, _admin_key: AdminKeyDep = None
+) -> dict[str, Any]:
     """List all tasks with optional status filter."""
     if not _task_queue:
         raise HTTPException(status_code=503, detail="Task queue not initialized")
@@ -517,7 +570,9 @@ async def get_prd_version(
     """Get specific PRD version."""
     from sqlalchemy import select
 
-    result = await db.execute(select(PRDVersion).where(PRDVersion.version_id == version_id))
+    result = await db.execute(
+        select(PRDVersion).where(PRDVersion.version_id == version_id)
+    )
     version = result.scalar_one_or_none()
     if not version:
         raise HTTPException(status_code=404, detail="Version not found")
@@ -598,14 +653,20 @@ async def get_prd_changelog(
     from sqlalchemy import select
 
     # Fetch both versions
-    result = await db.execute(select(PRDVersion).where(PRDVersion.version_id == from_version))
+    result = await db.execute(
+        select(PRDVersion).where(PRDVersion.version_id == from_version)
+    )
     old_version = result.scalar_one()
-    result = await db.execute(select(PRDVersion).where(PRDVersion.version_id == to_version))
+    result = await db.execute(
+        select(PRDVersion).where(PRDVersion.version_id == to_version)
+    )
     new_version = result.scalar_one()
 
     # Generate changelog
     diff_summary = new_version.diff_summary or {}
-    changelog = await generate_changelog(old_version.prd_markdown, new_version.prd_markdown, diff_summary)
+    changelog = await generate_changelog(
+        old_version.prd_markdown, new_version.prd_markdown, diff_summary
+    )
 
     return {
         "from_version": from_version,

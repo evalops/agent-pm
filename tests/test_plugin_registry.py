@@ -48,7 +48,13 @@ def test_ticket_automation_plugin_creates_issue(monkeypatch, tmp_path):
     registry.fire("post_alignment_event", event={"event_id": "evt-123"})
     assert "evt-123" in plugin.alignment_events
 
-    registry.fire("post_ticket_export", kind="csv", destination="/tmp/demo.csv", rows=5, statuses=["success"])
+    registry.fire(
+        "post_ticket_export",
+        kind="csv",
+        destination="/tmp/demo.csv",
+        rows=5,
+        statuses=["success"],
+    )
     assert plugin.export_events[-1]["kind"] == "csv"
 
 
@@ -175,19 +181,35 @@ def test_slack_and_warehouse_plugins(monkeypatch, tmp_path):
         captured_messages.append(message)
         return {"ok": True, "channel": channel}
 
-    monkeypatch.setattr("agent_pm.plugins.slack_notifications.slack_client.post_digest", fake_post_digest)
+    monkeypatch.setattr(
+        "agent_pm.plugins.slack_notifications.slack_client.post_digest",
+        fake_post_digest,
+    )
     monkeypatch.setattr(slack_plugin, "_schedule", lambda coro: asyncio.run(coro))
 
-    registry.fire("post_alignment_followup", event={"title": "Alpha", "event_id": "evt-1"}, status="ack")
+    registry.fire(
+        "post_alignment_followup",
+        event={"title": "Alpha", "event_id": "evt-1"},
+        status="ack",
+    )
     registry.fire("post_alignment_event", event={"event_id": "evt-2"})
     registry.fire("on_feedback", feedback={"title": "Alpha", "comment": "Great"})
-    registry.fire("post_ticket_export", kind="csv", destination="/tmp/export.csv", rows=2, statuses=["ack"])
+    registry.fire(
+        "post_ticket_export",
+        kind="csv",
+        destination="/tmp/export.csv",
+        rows=2,
+        statuses=["ack"],
+    )
 
     assert len(captured_messages) == 2
 
     events_file = tmp_path / "events.jsonl"
     assert events_file.exists()
-    output_records = [json.loads(line) for line in events_file.read_text(encoding="utf-8").splitlines()]
+    output_records = [
+        json.loads(line)
+        for line in events_file.read_text(encoding="utf-8").splitlines()
+    ]
     assert any(record["event"] == "ticket_export" for record in output_records)
     assert any(record["event"] == "alignment_event" for record in output_records)
     assert any(record["event"] == "feedback" for record in output_records)
@@ -203,7 +225,9 @@ def test_invalid_plugin_configuration_surfaces_errors(tmp_path):
     registry = PluginRegistry(config_path)
     metadata = registry.list_metadata()
     assert metadata
-    invalid_entry = next(item for item in metadata if item["name"].startswith("invalid_plugin"))
+    invalid_entry = next(
+        item for item in metadata if item["name"].startswith("invalid_plugin")
+    )
     assert invalid_entry["errors"]
     assert invalid_entry["enabled"] is False
     assert invalid_entry["invalid"] is True
@@ -275,7 +299,13 @@ def test_registry_discover_plugins(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "agent_pm.plugins.registry.metadata.entry_points",
         lambda: FakeEntryPoints(
-            [FakeEntryPoint("demo", "agent_pm.plugins.slack_notifications:SlackAlertsPlugin", SlackAlertsPlugin)]
+            [
+                FakeEntryPoint(
+                    "demo",
+                    "agent_pm.plugins.slack_notifications:SlackAlertsPlugin",
+                    SlackAlertsPlugin,
+                )
+            ]
         ),
     )
 

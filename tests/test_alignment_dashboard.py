@@ -9,7 +9,10 @@ def test_load_alignment_data_uses_api(monkeypatch):
         assert url == "http://example/api"
         assert key == "secret"
         assert limit == 25
-        return ([{"notification": {"status": "success"}}], {"total_events": 1, "status_counts": {"success": 1}})
+        return (
+            [{"notification": {"status": "success"}}],
+            {"total_events": 1, "status_counts": {"success": 1}},
+        )
 
     monkeypatch.setattr(alignment_dashboard, "fetch_from_api", fake_fetch)
     events, summary, source = alignment_dashboard.load_alignment_data(limit=25)
@@ -28,7 +31,10 @@ def test_load_alignment_data_fallback(monkeypatch):
     monkeypatch.setattr(
         alignment_dashboard,
         "get_alignment_summary",
-        lambda limit: ([{"notification": {"status": "success"}}], {"total_events": 1, "status_counts": {"success": 1}}),
+        lambda limit: (
+            [{"notification": {"status": "success"}}],
+            {"total_events": 1, "status_counts": {"success": 1}},
+        ),
     )
 
     events, summary, source = alignment_dashboard.load_alignment_data(limit=10)

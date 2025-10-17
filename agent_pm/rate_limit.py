@@ -77,7 +77,9 @@ class ConcurrencyLimiter:
 
 
 # Global instances
-_rate_limiter = RateLimiter(capacity=20, refill_rate=2.0)  # 20 req burst, 2 req/sec refill
+_rate_limiter = RateLimiter(
+    capacity=20, refill_rate=2.0
+)  # 20 req burst, 2 req/sec refill
 _concurrency_limiter = ConcurrencyLimiter(max_concurrent=10)
 
 

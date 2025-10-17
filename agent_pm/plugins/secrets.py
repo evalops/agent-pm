@@ -57,7 +57,9 @@ def _from_secret_file(key: str, plugin_name: str | None) -> Any:
     if plugin_name:
         per_plugin = data.get("plugins", {})
         if isinstance(per_plugin, dict):
-            plugin_blob = per_plugin.get(plugin_name) or per_plugin.get(plugin_name.replace("-", "_"))
+            plugin_blob = per_plugin.get(plugin_name) or per_plugin.get(
+                plugin_name.replace("-", "_")
+            )
             if isinstance(plugin_blob, dict) and key in plugin_blob:
                 return plugin_blob[key]
     # 2. Top-level key
@@ -70,7 +72,9 @@ def _from_secret_file(key: str, plugin_name: str | None) -> Any:
     return None
 
 
-def resolve_secret(key: str, *, plugin_name: str | None = None, overrides: dict[str, Any] | None = None) -> Any:
+def resolve_secret(
+    key: str, *, plugin_name: str | None = None, overrides: dict[str, Any] | None = None
+) -> Any:
     """Resolve a secret by checking overrides, environment, settings, then optional secret file."""
 
     if overrides:

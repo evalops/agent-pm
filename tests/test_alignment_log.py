@@ -5,7 +5,10 @@ from agent_pm import alignment_log
 
 def test_summarize_alignment_events_counts():
     events = [
-        {"notification": {"status": "success"}, "suggestions": [{"idea": "Alpha"}, {"idea": "Beta"}]},
+        {
+            "notification": {"status": "success"},
+            "suggestions": [{"idea": "Alpha"}, {"idea": "Beta"}],
+        },
         {"notification": {"status": "duplicate"}, "suggestions": [{"idea": "Alpha"}]},
         {"notification": {"status": "error"}, "suggestions": []},
     ]
@@ -42,7 +45,9 @@ def test_record_alignment_event_assigns_id(tmp_path, monkeypatch):
         lambda hook, *args, **kwargs: fired.append(hook),
     )
 
-    event = alignment_log.record_alignment_event({"title": "Alpha", "notification": {"status": "success"}})
+    event = alignment_log.record_alignment_event(
+        {"title": "Alpha", "notification": {"status": "success"}}
+    )
 
     assert event["event_id"]
     stored = temp_log.load()
@@ -61,9 +66,13 @@ def test_record_alignment_followup_event_updates_log(tmp_path, monkeypatch):
 
     monkeypatch.setattr(alignment_log.plugin_registry, "fire", _capture_fire)
 
-    event = alignment_log.record_alignment_event({"title": "Alpha", "notification": {"status": "success"}})
+    event = alignment_log.record_alignment_event(
+        {"title": "Alpha", "notification": {"status": "success"}}
+    )
 
-    updated = asyncio.run(alignment_log.record_alignment_followup_event(event["event_id"], "ack"))
+    updated = asyncio.run(
+        alignment_log.record_alignment_followup_event(event["event_id"], "ack")
+    )
 
     assert updated is True
     stored = temp_log.load()[0]

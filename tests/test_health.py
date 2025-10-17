@@ -3,7 +3,12 @@
 import pytest
 
 import agent_pm.health as health
-from agent_pm.health import check_agents_config, check_all_dependencies, check_session_db, check_trace_dir
+from agent_pm.health import (
+    check_agents_config,
+    check_all_dependencies,
+    check_session_db,
+    check_trace_dir,
+)
 
 
 @pytest.mark.asyncio

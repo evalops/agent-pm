@@ -17,7 +17,9 @@ class SlackClient:
     def enabled(self) -> bool:
         return bool(self.token and self.channel)
 
-    async def post_digest(self, body_md: str, channel: str | None = None) -> dict[str, Any]:
+    async def post_digest(
+        self, body_md: str, channel: str | None = None
+    ) -> dict[str, Any]:
         if not body_md:
             raise ValueError("Slack digest body must not be empty")
         channel = channel or self.channel

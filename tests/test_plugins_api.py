@@ -16,7 +16,9 @@ def plugin_config_tmp(monkeypatch, tmp_path):
     original_path = plugin_registry.path
     temp_config = tmp_path / "plugins.yaml"
     source_path = settings.plugin_config_path
-    temp_config.write_text(Path(source_path).read_text(encoding="utf-8"), encoding="utf-8")
+    temp_config.write_text(
+        Path(source_path).read_text(encoding="utf-8"), encoding="utf-8"
+    )
     monkeypatch.setattr(plugin_registry, "path", temp_config)
     plugin_registry.reload()
     yield temp_config
@@ -132,7 +134,9 @@ def test_plugins_discover_endpoint(monkeypatch):
     monkeypatch.setattr(
         plugin_registry,
         "discover_plugins",
-        lambda: [{"entry_point": "demo", "module": "demo:Plugin", "plugin_name": "demo"}],
+        lambda: [
+            {"entry_point": "demo", "module": "demo:Plugin", "plugin_name": "demo"}
+        ],
     )
 
     response = client.get("/plugins/discover")
@@ -199,10 +203,16 @@ def test_plugins_install_endpoint_from_entry_point(monkeypatch):
 
     response = client.post(
         "/plugins/install",
-        json={"entry_point": "demo", "enabled": True, "config": {"path": "./demo.jsonl"}},
+        json={
+            "entry_point": "demo",
+            "enabled": True,
+            "config": {"path": "./demo.jsonl"},
+        },
     )
     assert response.status_code == 200
-    assert captured["module"] == "agent_pm.plugins.warehouse_export:WarehouseExportPlugin"
+    assert (
+        captured["module"] == "agent_pm.plugins.warehouse_export:WarehouseExportPlugin"
+    )
     assert captured["kwargs"]["enabled"] is True
     assert captured["kwargs"]["config"]["path"] == "./demo.jsonl"
     assert response.json()["plugin"]["name"] == "warehouse_export"

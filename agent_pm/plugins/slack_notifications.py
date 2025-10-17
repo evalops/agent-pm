@@ -31,7 +31,9 @@ class SlackAlertsPlugin(PluginBase):
         self._token = self.get_secret("SLACK_BOT_TOKEN")
         if self._token:
             slack_client.token = self._token
-        channel_override = self.config.get("channel") or self.get_secret("SLACK_STATUS_CHANNEL")
+        channel_override = self.config.get("channel") or self.get_secret(
+            "SLACK_STATUS_CHANNEL"
+        )
         if channel_override:
             self.channel = channel_override
             slack_client.channel = channel_override

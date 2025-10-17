@@ -13,7 +13,12 @@ API_URL = os.getenv("AGENT_PM_PLAN_URL", "http://localhost:8000/plan")
 @metric
 def prd_has_sections(output: dict) -> float:
     text = output.get("prd_markdown", "")
-    required = ["## Context", "## Problem", "## Goals / Non-Goals", "## Acceptance Criteria"]
+    required = [
+        "## Context",
+        "## Problem",
+        "## Goals / Non-Goals",
+        "## Acceptance Criteria",
+    ]
     return float(all(section in text for section in required))
 
 

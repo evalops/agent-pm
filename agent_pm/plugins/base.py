@@ -37,7 +37,9 @@ class PluginBase:
         self.active: bool = True
         self._secret_overrides: dict[str, Any] = dict(self.config.get("secrets", {}))
 
-    def get_router(self) -> tuple[APIRouter, str] | None:  # pragma: no cover - default has no routes
+    def get_router(
+        self,
+    ) -> tuple[APIRouter, str] | None:  # pragma: no cover - default has no routes
         return None
 
     def metadata(self) -> PluginMetadata:
@@ -62,7 +64,9 @@ class PluginBase:
 
     def ensure_enabled(self) -> None:
         if not self.is_enabled:
-            raise HTTPException(status_code=503, detail=f"Plugin {self.name} is disabled")
+            raise HTTPException(
+                status_code=503, detail=f"Plugin {self.name} is disabled"
+            )
 
     def missing_secrets(self) -> list[str]:
         missing: list[str] = []
@@ -72,7 +76,9 @@ class PluginBase:
         return missing
 
     def get_secret(self, key: str, default: Any | None = None) -> Any | None:
-        value = resolve_secret(key, plugin_name=self.name, overrides=self._secret_overrides)
+        value = resolve_secret(
+            key, plugin_name=self.name, overrides=self._secret_overrides
+        )
         if value in (None, ""):
             return default
         return value

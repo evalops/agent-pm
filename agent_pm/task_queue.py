@@ -107,7 +107,9 @@ class TaskQueue:
         async with self._lock:
             return self.tasks.get(task_id)
 
-    async def list_tasks(self, status: TaskStatus | None = None, limit: int = 50) -> list[Task]:
+    async def list_tasks(
+        self, status: TaskStatus | None = None, limit: int = 50
+    ) -> list[Task]:
         """List tasks, optionally filtered by status."""
         async with self._lock:
             tasks = list(self.tasks.values())
@@ -138,7 +140,12 @@ class TaskQueue:
         """Execute a task with retry logic."""
         task.status = TaskStatus.RUNNING
         task.started_at = utc_now()
-        logger.info("Executing task: %s (id=%s, attempt=%d)", task.name, task.task_id, task.retry_count + 1)
+        logger.info(
+            "Executing task: %s (id=%s, attempt=%d)",
+            task.name,
+            task.task_id,
+            task.retry_count + 1,
+        )
 
         try:
             result = await task.coro_fn(*task.args, **task.kwargs)
@@ -149,7 +156,13 @@ class TaskQueue:
         except Exception as exc:
             task.error = str(exc)
             task.retry_count += 1
-            logger.error("Task failed: %s (id=%s, attempt=%d): %s", task.name, task.task_id, task.retry_count, exc)
+            logger.error(
+                "Task failed: %s (id=%s, attempt=%d): %s",
+                task.name,
+                task.task_id,
+                task.retry_count,
+                exc,
+            )
 
             if task.retry_count < task.max_retries:
                 task.status = TaskStatus.RETRYING
@@ -161,7 +174,9 @@ class TaskQueue:
             else:
                 task.status = TaskStatus.FAILED
                 task.completed_at = utc_now()
-                logger.error("Task permanently failed: %s (id=%s)", task.name, task.task_id)
+                logger.error(
+                    "Task permanently failed: %s (id=%s)", task.name, task.task_id
+                )
 
 
 # Global task queue instance

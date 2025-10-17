@@ -34,7 +34,10 @@ def configure_telemetry(app):
         # OTLP exporter for production (Jaeger, Tempo, etc.)
         otlp_exporter = OTLPSpanExporter(endpoint=settings.otel_exporter_endpoint)
         provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
-        logger.info("OpenTelemetry OTLP exporter configured: %s", settings.otel_exporter_endpoint)
+        logger.info(
+            "OpenTelemetry OTLP exporter configured: %s",
+            settings.otel_exporter_endpoint,
+        )
     else:
         # Console exporter for development
         console_exporter = ConsoleSpanExporter()

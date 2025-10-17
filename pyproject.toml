@@ -75,3 +75,12 @@ indent-style = "space"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_configs = true
+ignore_missing_imports = true
+files = ["agent_pm"]
+disable_error_code = ["import-untyped", "import-not-found"]
+exclude = ["^evals/"]
+ignore_errors = true
