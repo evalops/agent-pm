@@ -5,20 +5,20 @@ from __future__ import annotations
 import difflib
 import hashlib
 import logging
-from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_pm.database import PRDApproval, PRDVersion
+from agent_pm.utils.datetime import utc_now_isoformat
 
 logger = logging.getLogger(__name__)
 
 
 def compute_version_hash(content: str, parent_id: str | None) -> str:
     """Compute SHA-like hash for PRD version (git-style)."""
-    data = f"{content}{parent_id or 'root'}{datetime.utcnow().isoformat()}"
+    data = f"{content}{parent_id or 'root'}{utc_now_isoformat()}"
     return hashlib.sha256(data.encode()).hexdigest()[:16]
 
 

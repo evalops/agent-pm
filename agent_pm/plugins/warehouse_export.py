@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from ..utils.datetime import utc_now_isoformat
 from .base import PluginBase
 
 
@@ -31,7 +31,7 @@ class WarehouseExportPlugin(PluginBase):
         self._prepare_path()
 
     def _write_record(self, record: dict[str, Any]) -> None:
-        record.setdefault("timestamp", datetime.utcnow().isoformat())
+        record.setdefault("timestamp", utc_now_isoformat())
         with self.path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(record) + "\n")
 

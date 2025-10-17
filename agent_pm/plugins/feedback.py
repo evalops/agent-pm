@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +13,7 @@ from ..auth import AdminKeyDep, APIKeyDep
 from ..metrics import record_feedback_submission
 from ..rate_limit import enforce_rate_limit
 from ..settings import settings
+from ..utils.datetime import utc_now_isoformat
 from .base import PluginBase
 
 
@@ -76,7 +76,7 @@ class FeedbackPlugin(PluginBase):
     def _append(self, entry: FeedbackEntry) -> dict[str, Any]:
         records = self._load()
         payload = entry.model_dump()
-        payload["submitted_at"] = datetime.utcnow().isoformat()
+        payload["submitted_at"] = utc_now_isoformat()
         records.append(payload)
         self.storage_path.write_text(json.dumps(records, indent=2), encoding="utf-8")
         return payload

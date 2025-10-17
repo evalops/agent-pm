@@ -2,6 +2,7 @@
 
 import pytest
 
+import agent_pm.health as health
 from agent_pm.health import check_agents_config, check_all_dependencies, check_session_db, check_trace_dir
 
 
@@ -29,7 +30,12 @@ async def test_check_agents_config(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_check_all_dependencies():
+async def test_check_all_dependencies(monkeypatch):
+    async def fake_check_openai() -> dict:
+        return {"status": "ok", "service": "openai"}
+
+    monkeypatch.setattr(health, "check_openai", fake_check_openai)
+
     result = await check_all_dependencies()
     assert "status" in result
     assert "checks" in result

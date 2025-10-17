@@ -12,6 +12,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
+from .utils.datetime import utc_now
+
 logger = logging.getLogger(__name__)
 
 
@@ -43,7 +45,7 @@ class Task:
 
     def __post_init__(self):
         if self.created_at is None:
-            self.created_at = datetime.utcnow()
+            self.created_at = utc_now()
 
 
 class TaskQueue:
@@ -135,14 +137,14 @@ class TaskQueue:
     async def _execute_task(self, task: Task):
         """Execute a task with retry logic."""
         task.status = TaskStatus.RUNNING
-        task.started_at = datetime.utcnow()
+        task.started_at = utc_now()
         logger.info("Executing task: %s (id=%s, attempt=%d)", task.name, task.task_id, task.retry_count + 1)
 
         try:
             result = await task.coro_fn(*task.args, **task.kwargs)
             task.status = TaskStatus.COMPLETED
             task.result = result
-            task.completed_at = datetime.utcnow()
+            task.completed_at = utc_now()
             logger.info("Task completed: %s (id=%s)", task.name, task.task_id)
         except Exception as exc:
             task.error = str(exc)
@@ -158,7 +160,7 @@ class TaskQueue:
                 logger.info("Task re-enqueued: %s (id=%s)", task.name, task.task_id)
             else:
                 task.status = TaskStatus.FAILED
-                task.completed_at = datetime.utcnow()
+                task.completed_at = utc_now()
                 logger.error("Task permanently failed: %s (id=%s)", task.name, task.task_id)
 
 

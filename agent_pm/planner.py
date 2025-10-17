@@ -3,7 +3,6 @@
 import json
 import logging
 from collections import deque
-from datetime import datetime
 
 from . import embeddings
 from .agent_sdk import CriticReview, PRDPlan, run_critic_agent, run_planner_agent
@@ -20,6 +19,7 @@ from .metrics import (
 from .plugins import plugin_registry
 from .settings import settings
 from .templates import PRD_TEMPLATE
+from .utils.datetime import utc_now_isoformat
 
 
 def build_status_digest(
@@ -495,7 +495,7 @@ def generate_plan(
         {
             "title": title,
             "context": context,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": utc_now_isoformat(),
             "suggestions": alignment_suggestions,
             "notification": {"status": alignment_status, **notification_meta},
         }

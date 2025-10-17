@@ -8,7 +8,6 @@ import uuid
 from collections import Counter
 from collections.abc import Callable
 from contextlib import suppress
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +17,7 @@ from .database import AlignmentEvent, get_session_factory
 from .metrics import record_alignment_followup
 from .plugins import plugin_registry
 from .settings import settings
+from .utils.datetime import utc_now, utc_now_isoformat
 
 
 class AlignmentLog:
@@ -40,7 +40,7 @@ class AlignmentLog:
 
     def append(self, event: dict[str, Any]) -> None:
         events = self.load()
-        event.setdefault("timestamp", datetime.utcnow().isoformat())
+        event.setdefault("timestamp", utc_now_isoformat())
         events.append(event)
         if len(events) > self.max_entries:
             events = events[-self.max_entries :]
@@ -82,7 +82,7 @@ async def _persist_event_db(event: dict[str, Any]) -> None:
             suggestions=event.get("suggestions", []),
             notification_status=event.get("notification", {}).get("status", "unknown"),
             notification_meta=event.get("notification", {}),
-            created_at=datetime.utcnow(),
+            created_at=utc_now(),
         )
         session.add(record)
         await session.commit()
@@ -93,7 +93,7 @@ def record_alignment_event(event: dict[str, Any]) -> dict[str, Any]:
 
     enriched: dict[str, Any] = dict(event)
     enriched.setdefault("event_id", uuid.uuid4().hex)
-    enriched.setdefault("created_at", datetime.utcnow().isoformat())
+    enriched.setdefault("created_at", utc_now_isoformat())
 
     notification = enriched.get("notification")
     if not isinstance(notification, dict):
@@ -206,7 +206,7 @@ async def _persist_followup_db(event_id: str, status: str) -> bool:
         if record is None:
             return False
         record.followup_status = status
-        record.followup_recorded_at = datetime.utcnow()
+        record.followup_recorded_at = utc_now()
         await session.commit()
         return True
 
@@ -218,7 +218,7 @@ async def record_alignment_followup_event(event_id: str, status: str) -> bool:
         nonlocal captured
         followup = entry.setdefault("followup", {})
         followup["status"] = status
-        followup["recorded_at"] = datetime.utcnow().isoformat()
+        followup["recorded_at"] = utc_now_isoformat()
         captured = dict(entry)
 
     local_updated = _alignment_log.update(event_id, _mutator)

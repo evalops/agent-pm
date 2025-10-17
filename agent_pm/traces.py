@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
 from pathlib import Path
 
 from .memory import TraceMemory
 from .settings import settings
+from .utils.datetime import utc_now
 
 
 def _trace_dir() -> Path:
@@ -24,7 +24,7 @@ def _safe_name(name: str) -> str:
 
 def persist_trace(title: str, trace: TraceMemory) -> Path:
     trace_dir = _trace_dir()
-    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    timestamp = utc_now().strftime("%Y%m%dT%H%M%SZ")
     slug = title.replace(" ", "_") or "untitled"
     path = trace_dir / f"{timestamp}-{slug}.json"
     data = trace.dump()

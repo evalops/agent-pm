@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 import time
-from datetime import datetime
 from typing import Any
 
 import pandas as pd
@@ -20,6 +19,7 @@ from agent_pm.alignment_dashboard import (
     status_counts_by_idea,
     status_trend_by_day,
 )
+from agent_pm.utils.datetime import utc_now_isoformat
 
 st.set_page_config(page_title="Goal Alignment Insights", layout="wide")
 st.title("Goal Alignment Insights")
@@ -325,4 +325,4 @@ else:
         st.caption("Set PLUGINS_API_URL to enable plugin administration controls.")
 
 st.caption(f"Plugin data source: {plugin_source.upper()}")
-st.caption(f"Last refreshed: {datetime.utcnow().isoformat()}")
+st.caption(f"Last refreshed: {utc_now_isoformat()}")

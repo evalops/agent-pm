@@ -9,7 +9,6 @@ import sys
 import time
 from collections import deque
 from collections.abc import Iterable
-from datetime import datetime
 from importlib import metadata
 from pathlib import Path
 from typing import Any
@@ -18,6 +17,7 @@ from fastapi import FastAPI
 
 from ..metrics import record_plugin_hook_failure, record_plugin_hook_invocation
 from ..settings import settings
+from ..utils.datetime import utc_now_isoformat
 from .base import PluginBase, PluginMetadata
 from .schema import PluginConfigModel, dump_plugin_config, load_plugin_config
 
@@ -483,7 +483,7 @@ class PluginRegistry:
         history = self._hook_history.setdefault(plugin_name, {})
         bucket = history.setdefault(hook, deque(maxlen=100))
         entry: dict[str, Any] = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": utc_now_isoformat(),
             "status": status,
             "duration_ms": round(duration_ms, 3),
         }
