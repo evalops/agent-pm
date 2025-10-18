@@ -14,7 +14,12 @@ logger = logging.getLogger(__name__)
 
 
 async def check_openai() -> dict[str, Any]:
-    """Verify OpenAI API connectivity, reflecting dry-run mode when no key is configured."""
+    """Verify OpenAI API connectivity.
+
+    Returns:
+        A mapping with keys ``status`` (``ok``/``warn``/``error``) and ``service``.
+        Additional diagnostic details are included when available.
+    """
     client = get_async_openai_client(timeout=5.0)
     if client is None:
         detail = "OPENAI_API_KEY not configured"
@@ -30,7 +35,7 @@ async def check_openai() -> dict[str, Any]:
 
 
 async def check_session_db() -> dict[str, Any]:
-    """Verify agent session DB is writable."""
+    """Verify that the agent session database directory is writable."""
     try:
         db_path = settings.agent_session_db
         db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -45,7 +50,7 @@ async def check_session_db() -> dict[str, Any]:
 
 
 async def check_agents_config() -> dict[str, Any]:
-    """Verify agent configuration is valid YAML."""
+    """Verify that the agents configuration file exists and is valid YAML."""
     try:
         cfg_path = settings.agents_config_path
         if not cfg_path.exists():
@@ -73,7 +78,7 @@ async def check_agents_config() -> dict[str, Any]:
 
 
 async def check_trace_dir() -> dict[str, Any]:
-    """Verify trace directory is writable."""
+    """Verify that the trace directory can be created and written to."""
     try:
         trace_dir = settings.trace_dir
         trace_dir.mkdir(parents=True, exist_ok=True)
@@ -87,7 +92,7 @@ async def check_trace_dir() -> dict[str, Any]:
 
 
 async def check_all_dependencies() -> dict[str, Any]:
-    """Run all health checks in parallel."""
+    """Run all health checks in parallel and aggregate their results."""
     import asyncio
 
     results = await asyncio.gather(

@@ -5,7 +5,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from time import perf_counter
 
-from prometheus_client import Counter, Histogram, generate_latest
+from prometheus_client import Counter, Histogram, Summary, generate_latest
 
 planner_requests_total = Counter(
     "planner_requests_total",
@@ -77,6 +77,18 @@ plugin_hook_failures_total = Counter(
     labelnames=("plugin", "hook"),
 )
 
+client_requests_total = Counter(
+    "client_requests_total",
+    "External client calls grouped by client and outcome",
+    labelnames=("client", "outcome"),
+)
+
+client_latency_seconds = Summary(
+    "client_latency_seconds",
+    "Latency of external client calls grouped by client",
+    labelnames=("client",),
+)
+
 
 @contextmanager
 def record_planner_request() -> None:
@@ -130,6 +142,22 @@ def record_plugin_hook_failure(plugin: str, hook: str) -> None:
     plugin_hook_failures_total.labels(plugin=plugin, hook=hook).inc()
 
 
+@contextmanager
+def record_client_call(client: str):
+    """Context manager that records metrics around an external client invocation."""
+
+    start = perf_counter()
+    outcome = "success"
+    try:
+        yield
+    except Exception:
+        outcome = "error"
+        raise
+    finally:
+        client_requests_total.labels(client=client, outcome=outcome).inc()
+        client_latency_seconds.labels(client=client).observe(perf_counter() - start)
+
+
 def latest_metrics() -> bytes:
     return generate_latest()
 
@@ -146,5 +174,6 @@ __all__ = [
     "record_feedback_submission",
     "record_plugin_hook_invocation",
     "record_plugin_hook_failure",
+    "record_client_call",
     "latest_metrics",
 ]

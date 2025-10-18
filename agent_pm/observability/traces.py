@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from ..memory import TraceMemory
+from .metrics import record_client_call
 from ..settings import settings
 from ..utils.datetime import utc_now
 
@@ -28,7 +29,8 @@ def persist_trace(title: str, trace: TraceMemory) -> Path:
     slug = title.replace(" ", "_") or "untitled"
     path = trace_dir / f"{timestamp}-{slug}.json"
     data = trace.dump()
-    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    with record_client_call("trace_write"):
+        path.write_text(json.dumps(data, indent=2), encoding="utf-8")
     return path
 
 
@@ -55,7 +57,8 @@ def load_trace(name: str) -> list[dict[str, str]]:
     path = trace_dir / safe
     if not path.exists():
         raise FileNotFoundError(safe)
-    return json.loads(path.read_text(encoding="utf-8"))
+    with record_client_call("trace_read"):
+        return json.loads(path.read_text(encoding="utf-8"))
 
 
 def summarize_trace(name: str) -> dict[str, object]:

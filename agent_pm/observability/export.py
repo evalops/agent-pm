@@ -12,6 +12,8 @@ import httpx
 
 from agent_pm.settings import settings
 
+from .metrics import record_client_call
+
 logger = logging.getLogger(__name__)
 
 
@@ -19,12 +21,13 @@ async def export_trace_webhook(trace_data: dict[str, Any], webhook_url: str) -> 
     """Export trace to webhook endpoint."""
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(
-                webhook_url,
-                json=trace_data,
-                headers={"Content-Type": "application/json"},
-            )
-            response.raise_for_status()
+            with record_client_call("webhook"):
+                response = await client.post(
+                    webhook_url,
+                    json=trace_data,
+                    headers={"Content-Type": "application/json"},
+                )
+                response.raise_for_status()
             logger.info("Trace exported to webhook: %s", webhook_url)
     except Exception as exc:
         logger.error("Failed to export trace to webhook: %s", exc)
@@ -38,12 +41,13 @@ async def export_trace_s3(trace_data: dict[str, Any], bucket: str, key: str) -> 
 
         session = aioboto3.Session()
         async with session.client("s3") as s3:
-            await s3.put_object(
-                Bucket=bucket,
-                Key=key,
-                Body=json.dumps(trace_data, indent=2).encode(),
-                ContentType="application/json",
-            )
+            with record_client_call("s3"):
+                await s3.put_object(
+                    Bucket=bucket,
+                    Key=key,
+                    Body=json.dumps(trace_data, indent=2).encode(),
+                    ContentType="application/json",
+                )
             logger.info("Trace exported to S3: s3://%s/%s", bucket, key)
     except ImportError:
         logger.warning("aioboto3 not installed; skipping S3 export")
@@ -57,8 +61,8 @@ async def export_trace(trace_path: Path) -> None:
         logger.warning("Trace file not found: %s", trace_path)
         return
 
-    with open(trace_path) as f:
-        trace_data = json.load(f)
+    with record_client_call("trace_read"):
+        trace_data = json.loads(trace_path.read_text())
 
     tasks = []
 

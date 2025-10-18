@@ -7,7 +7,9 @@ import logging
 import time
 from dataclasses import dataclass
 
-from fastapi import HTTPException, Request
+from typing import Annotated
+
+from fastapi import Depends, HTTPException, Request
 
 logger = logging.getLogger(__name__)
 
@@ -95,3 +97,7 @@ async def enforce_concurrency_limit() -> None:
 def release_concurrency() -> None:
     """Release global concurrency slot."""
     _concurrency_limiter.release()
+
+
+RateLimitDep = Annotated[None, Depends(enforce_rate_limit)]
+ConcurrencyLimitDep = Annotated[None, Depends(enforce_concurrency_limit)]
