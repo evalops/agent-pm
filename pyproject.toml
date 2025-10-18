@@ -35,6 +35,7 @@ dev = [
     "pytest-asyncio",
     "pytest-cov",
     "ruff",
+    "mypy",
 ]
 
 [build-system]

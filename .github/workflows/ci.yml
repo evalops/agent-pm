@@ -29,6 +29,47 @@ jobs:
       - name: Run ruff lint
         run: uv run ruff check .
 
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run mypy
+        run: uv run mypy agent_pm
+
+  storage-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run storage test suite
+        run: uv run pytest -xvs tests/storage
+        env:
+          OPENAI_API_KEY: test-key
+          DRY_RUN: "true"
+
   test:
     runs-on: ubuntu-latest
     steps:
