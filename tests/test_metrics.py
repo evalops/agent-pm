@@ -1,4 +1,4 @@
-from agent_pm.metrics import (
+from agent_pm.observability.metrics import (
     latest_metrics,
     record_guardrail_rejection,
     record_planner_request,

@@ -23,7 +23,7 @@ from agents import (
 from pydantic import BaseModel, Field, field_validator
 
 from .clients import jira_client, slack_client
-from .metrics import record_tool_invocation
+from .observability.metrics import record_tool_invocation
 from .models import JiraIssuePayload
 from .settings import settings
 

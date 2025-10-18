@@ -2,8 +2,8 @@
 
 import pytest
 
-import agent_pm.health as health
-from agent_pm.health import (
+import agent_pm.api.health as health
+from agent_pm.api.health import (
     check_agents_config,
     check_all_dependencies,
     check_session_db,

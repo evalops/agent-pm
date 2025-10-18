@@ -5,7 +5,7 @@ import asyncio
 import pytest
 from fastapi import HTTPException
 
-from agent_pm.rate_limit import ConcurrencyLimiter, RateLimiter
+from agent_pm.api.rate_limit import ConcurrencyLimiter, RateLimiter
 
 
 @pytest.mark.asyncio

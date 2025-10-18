@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from agent_pm.task_queue import TaskQueue, TaskStatus
+from agent_pm.storage.tasks import TaskQueue, TaskStatus
 
 
 async def sample_task(value: int) -> int:

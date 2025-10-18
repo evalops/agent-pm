@@ -1,4 +1,4 @@
-from agent_pm import alignment_export
+from agent_pm.alignment import export
 
 
 def test_write_csv_creates_file(tmp_path, monkeypatch):
@@ -12,14 +12,10 @@ def test_write_csv_creates_file(tmp_path, monkeypatch):
     ]
 
     fired: list[tuple[str, dict[str, object]]] = []
-    monkeypatch.setattr(
-        alignment_export.plugin_registry,
-        "fire",
-        lambda hook, *args, **kwargs: fired.append((hook, kwargs)),
-    )
+    monkeypatch.setattr(export.plugin_registry, "fire", lambda hook, *args, **kwargs: fired.append((hook, kwargs)))
 
     output = tmp_path / "alignments.csv"
-    path = alignment_export.write_csv(output, events)
+    path = export.write_csv(output, events)
 
     assert path.exists()
     content = path.read_text(encoding="utf-8")
@@ -48,10 +44,10 @@ def test_write_csv_filters_followup(tmp_path, monkeypatch):
         if hook == "post_ticket_export":
             captured.append(kwargs)
 
-    monkeypatch.setattr(alignment_export.plugin_registry, "fire", _capture_fire)
+    monkeypatch.setattr(export.plugin_registry, "fire", _capture_fire)
 
     output = tmp_path / "alignments_filtered.csv"
-    alignment_export.write_csv(output, events, statuses={"ack"})
+    export.write_csv(output, events, statuses={"ack"})
 
     content = output.read_text(encoding="utf-8")
     assert "evt-1" in content
@@ -68,6 +64,6 @@ def test_build_rows_uses_flattening():
         }
     ]
 
-    rows = alignment_export.build_rows(events)
+    rows = export.build_rows(events)
 
     assert rows[0]["idea"] == "Beta"

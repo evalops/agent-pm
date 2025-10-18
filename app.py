@@ -14,21 +14,21 @@ from pydantic import BaseModel, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_pm.agent_sdk import planner_tools_default_enabled, reload_agent_profiles
-from agent_pm.alignment_log import (
+from agent_pm.alignment.log import (
     fetch_alignment_events,
     get_alignment_summary,
     record_alignment_followup_event,
     summarize_alignment_events,
 )
-from agent_pm.alignment_stream import register_subscriber, unregister_subscriber
-from agent_pm.auth import AdminKeyDep, APIKeyDep
+from agent_pm.alignment.stream import register_subscriber, unregister_subscriber
+from agent_pm.api.auth import AdminKeyDep, APIKeyDep
 from agent_pm.clients import calendar_client, github_client, jira_client, slack_client
-from agent_pm.database import PRDVersion, get_db
-from agent_pm.guardrails import guardrail_context, rate_limited
-from agent_pm.health import check_all_dependencies
-from agent_pm.logging_config import configure_logging
+from agent_pm.storage.database import PRDVersion, get_db
+from agent_pm.api.guardrails import guardrail_context, rate_limited
+from agent_pm.api.health import check_all_dependencies
+from agent_pm.observability.logging import configure_logging
 from agent_pm.memory import TraceMemory
-from agent_pm.metrics import latest_metrics, record_alignment_export
+from agent_pm.observability.metrics import latest_metrics, record_alignment_export
 from agent_pm.models import (
     BatchIdea,
     Idea,
@@ -39,8 +39,8 @@ from agent_pm.models import (
 )
 from agent_pm.planner import generate_plan
 from agent_pm.plugins import plugin_registry
-from agent_pm.prd_changelog import generate_changelog
-from agent_pm.prd_versions import (
+from agent_pm.prd.changelog import generate_changelog
+from agent_pm.prd.versions import (
     approve_version,
     create_branch,
     create_version,
@@ -48,22 +48,22 @@ from agent_pm.prd_versions import (
     get_version_history,
 )
 from agent_pm.procedures import loader as procedure_loader
-from agent_pm.rate_limit import (
+from agent_pm.api.rate_limit import (
     enforce_concurrency_limit,
     enforce_rate_limit,
     release_concurrency,
 )
 from agent_pm.settings import settings
-from agent_pm.structured_logging import (
+from agent_pm.observability.structured import (
     configure_structured_logging,
     get_correlation_id,
     set_correlation_id,
 )
-from agent_pm.task_queue import TaskQueue, TaskStatus
+from agent_pm.storage.tasks import TaskQueue, TaskStatus
 from agent_pm.tools import registry
-from agent_pm.trace_export import schedule_trace_export
-from agent_pm.traces import list_traces as list_trace_files
-from agent_pm.traces import persist_trace, summarize_trace
+from agent_pm.observability.export import schedule_trace_export
+from agent_pm.observability.traces import list_traces as list_trace_files
+from agent_pm.observability.traces import persist_trace, summarize_trace
 
 if settings.log_format == "json":
     configure_structured_logging()

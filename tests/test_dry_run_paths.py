@@ -1,7 +1,8 @@
 import asyncio
 from types import SimpleNamespace
 
-from agent_pm import dspy_program, embeddings, openai_utils, prd_changelog
+from agent_pm import dspy_program, embeddings, openai_utils
+from agent_pm.prd import changelog
 
 
 def test_generate_embedding_dry_run_returns_stub(monkeypatch):
@@ -29,11 +30,11 @@ def test_compile_brief_dry_run_skips_remote_call(monkeypatch):
 
 def test_generate_changelog_dry_run_returns_summary(monkeypatch):
     dummy_settings = SimpleNamespace(openai_api_key=None, dry_run=True)
-    monkeypatch.setattr(prd_changelog, "settings", dummy_settings, raising=False)
+    monkeypatch.setattr(changelog, "settings", dummy_settings, raising=False)
     monkeypatch.setattr(openai_utils, "settings", dummy_settings, raising=False)
 
     diff_summary = {"additions": 3, "deletions": 1}
 
-    result = asyncio.run(prd_changelog.generate_changelog("old", "new", diff_summary))
+    result = asyncio.run(changelog.generate_changelog("old", "new", diff_summary))
 
     assert result == "**Changes:** 3 additions, 1 deletions"

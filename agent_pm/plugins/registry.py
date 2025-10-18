@@ -15,7 +15,7 @@ from typing import Any
 
 from fastapi import FastAPI
 
-from ..metrics import record_plugin_hook_failure, record_plugin_hook_invocation
+from ..observability.metrics import record_plugin_hook_failure, record_plugin_hook_invocation
 from ..settings import settings
 from ..utils.datetime import utc_now_isoformat
 from .base import PluginBase, PluginMetadata

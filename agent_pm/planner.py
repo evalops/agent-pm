@@ -6,10 +6,10 @@ from collections import deque
 
 from . import embeddings
 from .agent_sdk import CriticReview, PRDPlan, run_critic_agent, run_planner_agent
-from .alignment_log import record_alignment_event
+from .alignment.log import record_alignment_event
 from .clients import openai_client, slack_client
 from .memory import TraceMemory, vector_memory
-from .metrics import (
+from .observability.metrics import (
     record_alignment_notification,
     record_dspy_guidance,
     record_guardrail_rejection,

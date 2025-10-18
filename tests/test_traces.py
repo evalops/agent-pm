@@ -2,7 +2,7 @@ import json
 
 from agent_pm.memory import TraceMemory
 from agent_pm.settings import settings
-from agent_pm.traces import list_traces, persist_trace, summarize_trace
+from agent_pm.observability.traces import list_traces, persist_trace, summarize_trace
 
 
 def test_list_and_summarize_traces(tmp_path, monkeypatch):

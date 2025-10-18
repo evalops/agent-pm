@@ -1,6 +1,6 @@
 import asyncio
 
-from agent_pm import alignment_log
+from agent_pm.alignment import log
 
 
 def test_summarize_alignment_events_counts():
@@ -13,7 +13,7 @@ def test_summarize_alignment_events_counts():
         {"notification": {"status": "error"}, "suggestions": []},
     ]
 
-    summary = alignment_log.summarize_alignment_events(events)
+    summary = log.summarize_alignment_events(events)
 
     assert summary["total_events"] == 3
     assert summary["status_counts"]["success"] == 1
@@ -26,26 +26,26 @@ def test_get_alignment_summary(monkeypatch):
     async def fake_fetch(limit: int):
         return [{"notification": {"status": "success"}, "suggestions": []}]
 
-    monkeypatch.setattr(alignment_log, "fetch_alignment_events", fake_fetch)
+    monkeypatch.setattr(log, "fetch_alignment_events", fake_fetch)
 
-    events, summary = alignment_log.get_alignment_summary(limit=5)
+    events, summary = log.get_alignment_summary(limit=5)
 
     assert len(events) == 1
     assert summary["status_counts"]["success"] == 1
 
 
 def test_record_alignment_event_assigns_id(tmp_path, monkeypatch):
-    temp_log = alignment_log.AlignmentLog(tmp_path / "alignments.json")
-    monkeypatch.setattr(alignment_log, "_alignment_log", temp_log)
-    monkeypatch.setattr(alignment_log, "_database_configured", lambda: False)
+    temp_log = log.AlignmentLog(tmp_path / "alignments.json")
+    monkeypatch.setattr(log, "_alignment_log", temp_log)
+    monkeypatch.setattr(log, "_database_configured", lambda: False)
     fired: list[str] = []
     monkeypatch.setattr(
-        alignment_log.plugin_registry,
+        log.plugin_registry,
         "fire",
         lambda hook, *args, **kwargs: fired.append(hook),
     )
 
-    event = alignment_log.record_alignment_event({"title": "Alpha", "notification": {"status": "success"}})
+    event = log.record_alignment_event({"title": "Alpha", "notification": {"status": "success"}})
 
     assert event["event_id"]
     stored = temp_log.load()
@@ -54,19 +54,19 @@ def test_record_alignment_event_assigns_id(tmp_path, monkeypatch):
 
 
 def test_record_alignment_followup_event_updates_log(tmp_path, monkeypatch):
-    temp_log = alignment_log.AlignmentLog(tmp_path / "alignments.json")
-    monkeypatch.setattr(alignment_log, "_alignment_log", temp_log)
-    monkeypatch.setattr(alignment_log, "_database_configured", lambda: False)
+    temp_log = log.AlignmentLog(tmp_path / "alignments.json")
+    monkeypatch.setattr(log, "_alignment_log", temp_log)
+    monkeypatch.setattr(log, "_database_configured", lambda: False)
     captured_hooks: list[str] = []
 
     def _capture_fire(hook, *args, **kwargs):
         captured_hooks.append(hook)
 
-    monkeypatch.setattr(alignment_log.plugin_registry, "fire", _capture_fire)
+    monkeypatch.setattr(log.plugin_registry, "fire", _capture_fire)
 
-    event = alignment_log.record_alignment_event({"title": "Alpha", "notification": {"status": "success"}})
+    event = log.record_alignment_event({"title": "Alpha", "notification": {"status": "success"}})
 
-    updated = asyncio.run(alignment_log.record_alignment_followup_event(event["event_id"], "ack"))
+    updated = asyncio.run(log.record_alignment_followup_event(event["event_id"], "ack"))
 
     assert updated is True
     stored = temp_log.load()[0]

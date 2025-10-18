@@ -8,7 +8,8 @@ import pytest
 # Ensure required settings before importing planner
 os.environ.setdefault("OPENAI_API_KEY", "test-key")
 
-from agent_pm import dspy_program, planner
+from agent_pm import dspy_program
+from agent_pm import planner as planner_module
 from agent_pm.agent_sdk import CriticReview, PRDPlan
 from agent_pm.memory import TraceMemory
 
@@ -23,23 +24,17 @@ def capture_alignment_events(monkeypatch):
         events.append(payload)
         return payload
 
-    monkeypatch.setattr(planner, "record_alignment_event", _record)
+    monkeypatch.setattr(planner_module, "record_alignment_event", _record)
     return events
 
 
-class DummyOpenAIClient:
-    @staticmethod
-    def create_plan(*args, **kwargs):
-        return "stubbed plan"
-
-
 def test_generate_plan_produces_status_digest(monkeypatch):
-    monkeypatch.setattr(planner, "openai_client", DummyOpenAIClient())
-    monkeypatch.setattr(planner.vector_memory, "record_prd", lambda *args, **kwargs: None)
-    monkeypatch.setattr(planner.vector_memory, "to_dataframe", lambda: pd.DataFrame())
+    monkeypatch.setattr(planner_module, "openai_client", SimpleNamespace(create_plan=lambda *args, **kwargs: "stubbed plan"))
+    monkeypatch.setattr(planner_module.vector_memory, "record_prd", lambda *args, **kwargs: None)
+    monkeypatch.setattr(planner_module.vector_memory, "to_dataframe", lambda: pd.DataFrame())
     fired_hooks: list[str] = []
     monkeypatch.setattr(
-        planner.plugin_registry,
+        planner_module.plugin_registry,
         "fire",
         lambda hook, *args, **kwargs: fired_hooks.append(hook),
     )
@@ -53,18 +48,18 @@ def test_generate_plan_produces_status_digest(monkeypatch):
         users="PMs and execs",
     )
     monkeypatch.setattr(
-        planner,
+        planner_module,
         "run_planner_agent",
         lambda prompt, conversation_id=None, enable_tools=False, max_turns=None: plan,
     )
     review = CriticReview(status="pass", issues=[], recommendations=["Ship weekly digest"], confidence=0.8)
     monkeypatch.setattr(
-        planner,
+        planner_module,
         "run_critic_agent",
         lambda plan_result, conversation_id=None, max_turns=None: review,
     )
 
-    result = planner.generate_plan(
+    result = planner_module.generate_plan(
         title="Test Initiative",
         context="Need visibility",
         constraints=["Two-week MVP"],
@@ -90,9 +85,9 @@ def test_generate_plan_produces_status_digest(monkeypatch):
 
 
 def test_generate_plan_revision_flow(monkeypatch):
-    monkeypatch.setattr(planner, "openai_client", DummyOpenAIClient())
-    monkeypatch.setattr(planner.vector_memory, "record_prd", lambda *args, **kwargs: None)
-    monkeypatch.setattr(planner.vector_memory, "to_dataframe", lambda: pd.DataFrame())
+    monkeypatch.setattr(planner_module, "openai_client", SimpleNamespace(create_plan=lambda *args, **kwargs: "stubbed plan"))
+    monkeypatch.setattr(planner_module.vector_memory, "record_prd", lambda *args, **kwargs: None)
+    monkeypatch.setattr(planner_module.vector_memory, "to_dataframe", lambda: pd.DataFrame())
 
     first_plan = PRDPlan(
         problem="Ambiguous scope",
@@ -118,7 +113,7 @@ def test_generate_plan_revision_flow(monkeypatch):
     def fake_planner(prompt, conversation_id=None, enable_tools=False, max_turns=None):
         return next(plan_iter)
 
-    monkeypatch.setattr(planner, "run_planner_agent", fake_planner)
+    monkeypatch.setattr(planner_module, "run_planner_agent", fake_planner)
 
     review_iter = iter(
         [
@@ -133,12 +128,12 @@ def test_generate_plan_revision_flow(monkeypatch):
     )
 
     monkeypatch.setattr(
-        planner,
+        planner_module,
         "run_critic_agent",
         lambda plan_result, conversation_id=None, max_turns=None: next(review_iter),
     )
 
-    result = planner.generate_plan(
+    result = planner_module.generate_plan(
         title="Onboarding Revamp",
         context="Activation is flat",
         constraints=["Ship in Q1"],
@@ -160,11 +155,11 @@ def test_generate_plan_revision_flow(monkeypatch):
 
 
 def test_generate_plan_appends_dspy_guidance(monkeypatch):
-    monkeypatch.setattr(planner.settings, "use_dspy", True)
-    monkeypatch.setattr(planner.settings, "openai_api_key", "test-key")
-    monkeypatch.setattr(planner.settings, "dry_run", False)
-    monkeypatch.setattr(planner.vector_memory, "record_prd", lambda *args, **kwargs: None)
-    monkeypatch.setattr(planner.vector_memory, "to_dataframe", lambda: pd.DataFrame())
+    monkeypatch.setattr(planner_module.settings, "use_dspy", True)
+    monkeypatch.setattr(planner_module.settings, "openai_api_key", "test-key")
+    monkeypatch.setattr(planner_module.settings, "dry_run", False)
+    monkeypatch.setattr(planner_module.vector_memory, "record_prd", lambda *args, **kwargs: None)
+    monkeypatch.setattr(planner_module.vector_memory, "to_dataframe", lambda: pd.DataFrame())
 
     plan = PRDPlan(
         problem="Goal misalignment",
@@ -176,12 +171,12 @@ def test_generate_plan_appends_dspy_guidance(monkeypatch):
         users="PM team",
     )
     monkeypatch.setattr(
-        planner,
+        planner_module,
         "run_planner_agent",
         lambda prompt, conversation_id=None, enable_tools=False, max_turns=None: plan,
     )
     monkeypatch.setattr(
-        planner,
+        planner_module,
         "run_critic_agent",
         lambda plan_result, conversation_id=None, max_turns=None: CriticReview(
             status="pass", issues=[], recommendations=[], confidence=0.9
@@ -199,7 +194,7 @@ def test_generate_plan_appends_dspy_guidance(monkeypatch):
     recorded_outcomes: list[str] = []
 
     monkeypatch.setattr(
-        planner,
+        planner_module,
         "record_dspy_guidance",
         lambda outcome: recorded_outcomes.append(outcome),
     )
@@ -210,11 +205,11 @@ def test_generate_plan_appends_dspy_guidance(monkeypatch):
         captured_prompt["user"] = user_prompt
         return "generated plan"
 
-    monkeypatch.setattr(planner, "openai_client", SimpleNamespace(create_plan=_fake_create_plan))
+    monkeypatch.setattr(planner_module, "openai_client", SimpleNamespace(create_plan=_fake_create_plan))
 
     trace = TraceMemory()
 
-    result = planner.generate_plan(
+    result = planner_module.generate_plan(
         title="Stakeholder Visibility",
         context="Need shared goals",
         constraints=["Complete within two weeks"],
@@ -237,11 +232,11 @@ def test_generate_plan_appends_dspy_guidance(monkeypatch):
 
 
 def test_generate_plan_handles_dspy_runtime_error(monkeypatch):
-    monkeypatch.setattr(planner.settings, "use_dspy", True)
-    monkeypatch.setattr(planner.settings, "openai_api_key", "test-key")
-    monkeypatch.setattr(planner.settings, "dry_run", False)
-    monkeypatch.setattr(planner.vector_memory, "record_prd", lambda *args, **kwargs: None)
-    monkeypatch.setattr(planner.vector_memory, "to_dataframe", lambda: pd.DataFrame())
+    monkeypatch.setattr(planner_module.settings, "use_dspy", True)
+    monkeypatch.setattr(planner_module.settings, "openai_api_key", "test-key")
+    monkeypatch.setattr(planner_module.settings, "dry_run", False)
+    monkeypatch.setattr(planner_module.vector_memory, "record_prd", lambda *args, **kwargs: None)
+    monkeypatch.setattr(planner_module.vector_memory, "to_dataframe", lambda: pd.DataFrame())
 
     plan = PRDPlan(
         problem="Missing metrics",
@@ -253,12 +248,12 @@ def test_generate_plan_handles_dspy_runtime_error(monkeypatch):
         users="Analytics team",
     )
     monkeypatch.setattr(
-        planner,
+        planner_module,
         "run_planner_agent",
         lambda prompt, conversation_id=None, enable_tools=False, max_turns=None: plan,
     )
     monkeypatch.setattr(
-        planner,
+        planner_module,
         "run_critic_agent",
         lambda plan_result, conversation_id=None, max_turns=None: CriticReview(
             status="pass", issues=[], recommendations=[], confidence=0.9
@@ -273,7 +268,7 @@ def test_generate_plan_handles_dspy_runtime_error(monkeypatch):
 
     recorded_outcomes: list[str] = []
     monkeypatch.setattr(
-        planner,
+        planner_module,
         "record_dspy_guidance",
         lambda outcome: recorded_outcomes.append(outcome),
     )
@@ -284,11 +279,11 @@ def test_generate_plan_handles_dspy_runtime_error(monkeypatch):
         captured_prompt["user"] = user_prompt
         return "plan without guidance"
 
-    monkeypatch.setattr(planner, "openai_client", SimpleNamespace(create_plan=_fake_create_plan))
+    monkeypatch.setattr(planner_module, "openai_client", SimpleNamespace(create_plan=_fake_create_plan))
 
     trace = TraceMemory()
 
-    result = planner.generate_plan(
+    result = planner_module.generate_plan(
         title="Analytics Revamp",
         context="Need KPI baseline",
         constraints=["Launch in Q2"],
@@ -312,9 +307,9 @@ def test_generate_plan_handles_dspy_runtime_error(monkeypatch):
 
 
 def test_generate_plan_skips_guidance_when_disabled(monkeypatch):
-    monkeypatch.setattr(planner.settings, "use_dspy", False)
-    monkeypatch.setattr(planner.vector_memory, "record_prd", lambda *args, **kwargs: None)
-    monkeypatch.setattr(planner.vector_memory, "to_dataframe", lambda: pd.DataFrame())
+    monkeypatch.setattr(planner_module.settings, "use_dspy", False)
+    monkeypatch.setattr(planner_module.vector_memory, "record_prd", lambda *args, **kwargs: None)
+    monkeypatch.setattr(planner_module.vector_memory, "to_dataframe", lambda: pd.DataFrame())
 
     plan = PRDPlan(
         problem="General problem",
@@ -326,12 +321,12 @@ def test_generate_plan_skips_guidance_when_disabled(monkeypatch):
         users="User",
     )
     monkeypatch.setattr(
-        planner,
+        planner_module,
         "run_planner_agent",
         lambda prompt, conversation_id=None, enable_tools=False, max_turns=None: plan,
     )
     monkeypatch.setattr(
-        planner,
+        planner_module,
         "run_critic_agent",
         lambda plan_result, conversation_id=None, max_turns=None: CriticReview(
             status="pass", issues=[], recommendations=[], confidence=1.0
@@ -340,7 +335,7 @@ def test_generate_plan_skips_guidance_when_disabled(monkeypatch):
 
     recorded_outcomes: list[str] = []
     monkeypatch.setattr(
-        planner,
+        planner_module,
         "record_dspy_guidance",
         lambda outcome: recorded_outcomes.append(outcome),
     )
@@ -348,12 +343,12 @@ def test_generate_plan_skips_guidance_when_disabled(monkeypatch):
     trace = TraceMemory()
 
     monkeypatch.setattr(
-        planner,
+        planner_module,
         "openai_client",
         SimpleNamespace(create_plan=lambda *args, **kwargs: "plan"),
     )
 
-    planner.generate_plan(
+    planner_module.generate_plan(
         title="No DSPy",
         context="",
         constraints=None,
@@ -374,11 +369,11 @@ def test_generate_plan_skips_guidance_when_disabled(monkeypatch):
 
 
 def test_generate_plan_skips_guidance_without_api_key(monkeypatch):
-    monkeypatch.setattr(planner.settings, "use_dspy", True)
-    monkeypatch.setattr(planner.settings, "openai_api_key", None)
-    monkeypatch.setattr(planner.settings, "dry_run", False)
-    monkeypatch.setattr(planner.vector_memory, "record_prd", lambda *args, **kwargs: None)
-    monkeypatch.setattr(planner.vector_memory, "to_dataframe", lambda: pd.DataFrame())
+    monkeypatch.setattr(planner_module.settings, "use_dspy", True)
+    monkeypatch.setattr(planner_module.settings, "openai_api_key", None)
+    monkeypatch.setattr(planner_module.settings, "dry_run", False)
+    monkeypatch.setattr(planner_module.vector_memory, "record_prd", lambda *args, **kwargs: None)
+    monkeypatch.setattr(planner_module.vector_memory, "to_dataframe", lambda: pd.DataFrame())
 
     plan = PRDPlan(
         problem="General problem",
@@ -390,12 +385,12 @@ def test_generate_plan_skips_guidance_without_api_key(monkeypatch):
         users="User",
     )
     monkeypatch.setattr(
-        planner,
+        planner_module,
         "run_planner_agent",
         lambda prompt, conversation_id=None, enable_tools=False, max_turns=None: plan,
     )
     monkeypatch.setattr(
-        planner,
+        planner_module,
         "run_critic_agent",
         lambda plan_result, conversation_id=None, max_turns=None: CriticReview(
             status="pass", issues=[], recommendations=[], confidence=1.0
@@ -404,7 +399,7 @@ def test_generate_plan_skips_guidance_without_api_key(monkeypatch):
 
     recorded_outcomes: list[str] = []
     monkeypatch.setattr(
-        planner,
+        planner_module,
         "record_dspy_guidance",
         lambda outcome: recorded_outcomes.append(outcome),
     )
@@ -412,12 +407,12 @@ def test_generate_plan_skips_guidance_without_api_key(monkeypatch):
     trace = TraceMemory()
 
     monkeypatch.setattr(
-        planner,
+        planner_module,
         "openai_client",
         SimpleNamespace(create_plan=lambda *args, **kwargs: "plan"),
     )
 
-    planner.generate_plan(
+    planner_module.generate_plan(
         title="Missing Key",
         context="",
         constraints=None,
@@ -438,8 +433,8 @@ def test_generate_plan_skips_guidance_without_api_key(monkeypatch):
 
 
 def test_goal_alignment_appends_note(monkeypatch, capture_alignment_events):
-    monkeypatch.setattr(planner.settings, "use_dspy", False)
-    monkeypatch.setattr(planner.vector_memory, "record_prd", lambda *args, **kwargs: None)
+    monkeypatch.setattr(planner_module.settings, "use_dspy", False)
+    monkeypatch.setattr(planner_module.vector_memory, "record_prd", lambda *args, **kwargs: None)
 
     alignment_df = pd.DataFrame(
         [
@@ -449,17 +444,17 @@ def test_goal_alignment_appends_note(monkeypatch, capture_alignment_events):
             }
         ]
     )
-    monkeypatch.setattr(planner.vector_memory, "to_dataframe", lambda: alignment_df)
+    monkeypatch.setattr(planner_module.vector_memory, "to_dataframe", lambda: alignment_df)
 
     monkeypatch.setattr(
-        planner.embeddings,
+        planner_module.embeddings,
         "generate_embedding_sync",
         lambda text, model="text-embedding-3-small": ([1.0, 0.0] if "visibility" in text.lower() else [0.0, 1.0]),
     )
-    monkeypatch.setattr(planner.embeddings, "cosine_similarity", lambda a, b: 0.95 if a == b else 0.1)
+    monkeypatch.setattr(planner_module.embeddings, "cosine_similarity", lambda a, b: 0.95 if a == b else 0.1)
 
-    planner._alignment_history.clear()
-    planner._alignment_history_set.clear()
+    planner_module._alignment_history.clear()
+    planner_module._alignment_history_set.clear()
 
     plan = PRDPlan(
         problem="Data fragmentation",
@@ -471,9 +466,9 @@ def test_goal_alignment_appends_note(monkeypatch, capture_alignment_events):
         users="PM org",
     )
 
-    monkeypatch.setattr(planner, "run_planner_agent", lambda *args, **kwargs: plan)
+    monkeypatch.setattr(planner_module, "run_planner_agent", lambda *args, **kwargs: plan)
     monkeypatch.setattr(
-        planner,
+        planner_module,
         "run_critic_agent",
         lambda *args, **kwargs: CriticReview(status="pass", issues=[], recommendations=[], confidence=0.9),
     )
@@ -482,27 +477,27 @@ def test_goal_alignment_appends_note(monkeypatch, capture_alignment_events):
     notifications: list[tuple[tuple[str, ...], dict[str, object]]] = []
     recorded_statuses: list[str] = []
     monkeypatch.setattr(
-        planner,
+        planner_module,
         "record_alignment_notification",
         lambda status: recorded_statuses.append(status),
     )
 
     def _fake_notify(*args, **kwargs):
         notifications.append((args, kwargs))
-        planner.record_alignment_notification("success")
+        planner_module.record_alignment_notification("success")
         return "success", {"channel": "test"}
 
-    monkeypatch.setattr(planner, "_notify_alignment", _fake_notify)
+    monkeypatch.setattr(planner_module, "_notify_alignment", _fake_notify)
 
     def _fake_create_plan(system_prompt, user_prompt, tools):
         captured_prompt["user"] = user_prompt
         return "plan"
 
-    monkeypatch.setattr(planner, "openai_client", SimpleNamespace(create_plan=_fake_create_plan))
+    monkeypatch.setattr(planner_module, "openai_client", SimpleNamespace(create_plan=_fake_create_plan))
 
     trace = TraceMemory()
 
-    result = planner.generate_plan(
+    result = planner_module.generate_plan(
         title="Visibility Initiative",
         context="Need better dashboards",
         constraints=["Launch this quarter"],
@@ -535,13 +530,13 @@ def test_goal_alignment_appends_note(monkeypatch, capture_alignment_events):
 
 
 def test_notify_alignment_respects_configuration(monkeypatch):
-    planner._alignment_history.clear()
-    planner._alignment_history_set.clear()
+    planner_module._alignment_history.clear()
+    planner_module._alignment_history_set.clear()
 
-    monkeypatch.setattr(planner.settings, "goal_alignment_notify", False)
-    monkeypatch.setattr(planner.settings, "dry_run", False)
-    monkeypatch.setattr(planner.slack_client, "token", "token", raising=False)
-    monkeypatch.setattr(planner.slack_client, "channel", "channel", raising=False)
+    monkeypatch.setattr(planner_module.settings, "goal_alignment_notify", False)
+    monkeypatch.setattr(planner_module.settings, "dry_run", False)
+    monkeypatch.setattr(planner_module.slack_client, "token", "token", raising=False)
+    monkeypatch.setattr(planner_module.slack_client, "channel", "channel", raising=False)
 
     calls: list[str] = []
 
@@ -549,12 +544,12 @@ def test_notify_alignment_respects_configuration(monkeypatch):
         calls.append(body_md)
         return {"ok": True}
 
-    monkeypatch.setattr(planner.slack_client, "post_digest", _fake_post)
+    monkeypatch.setattr(planner_module.slack_client, "post_digest", _fake_post)
 
     statuses: list[str] = []
-    monkeypatch.setattr(planner, "record_alignment_notification", lambda status: statuses.append(status))
+    monkeypatch.setattr(planner_module, "record_alignment_notification", lambda status: statuses.append(status))
 
-    status, meta = planner._notify_alignment("Test Initiative", "Note", [{"idea": "Other"}])
+    status, meta = planner_module._notify_alignment("Test Initiative", "Note", [{"idea": "Other"}])
 
     assert calls == []
     assert status == "disabled"
@@ -563,13 +558,13 @@ def test_notify_alignment_respects_configuration(monkeypatch):
 
 
 def test_notify_alignment_deduplicates_pairs(monkeypatch):
-    planner._alignment_history.clear()
-    planner._alignment_history_set.clear()
+    planner_module._alignment_history.clear()
+    planner_module._alignment_history_set.clear()
 
-    monkeypatch.setattr(planner.settings, "goal_alignment_notify", True)
-    monkeypatch.setattr(planner.settings, "dry_run", False)
-    monkeypatch.setattr(planner.slack_client, "token", "token", raising=False)
-    monkeypatch.setattr(planner.slack_client, "channel", "channel", raising=False)
+    monkeypatch.setattr(planner_module.settings, "goal_alignment_notify", True)
+    monkeypatch.setattr(planner_module.settings, "dry_run", False)
+    monkeypatch.setattr(planner_module.slack_client, "token", "token", raising=False)
+    monkeypatch.setattr(planner_module.slack_client, "channel", "channel", raising=False)
 
     calls: list[str] = []
 
@@ -577,13 +572,13 @@ def test_notify_alignment_deduplicates_pairs(monkeypatch):
         calls.append(body_md)
         return {"ok": True}
 
-    monkeypatch.setattr(planner.slack_client, "post_digest", _fake_post)
+    monkeypatch.setattr(planner_module.slack_client, "post_digest", _fake_post)
 
     statuses: list[str] = []
-    monkeypatch.setattr(planner, "record_alignment_notification", lambda status: statuses.append(status))
+    monkeypatch.setattr(planner_module, "record_alignment_notification", lambda status: statuses.append(status))
 
-    first_status, first_meta = planner._notify_alignment("Test Initiative", "Note", [{"idea": "Other"}])
-    second_status, second_meta = planner._notify_alignment("Test Initiative", "Another note", [{"idea": "Other"}])
+    first_status, first_meta = planner_module._notify_alignment("Test Initiative", "Note", [{"idea": "Other"}])
+    second_status, second_meta = planner_module._notify_alignment("Test Initiative", "Another note", [{"idea": "Other"}])
 
     assert len(calls) == 1
     assert first_status == "success"

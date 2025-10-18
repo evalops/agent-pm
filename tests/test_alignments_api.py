@@ -58,7 +58,7 @@ def test_alignments_followup_endpoint(monkeypatch):
 def test_alignments_websocket_stream(monkeypatch):
     client = TestClient(app_module.app)
 
-    from agent_pm.alignment_stream import broadcast_alignment_event
+    from agent_pm.alignment.stream import broadcast_alignment_event
 
     with client.websocket_connect("/alignments/ws") as websocket:
         broadcast_alignment_event(

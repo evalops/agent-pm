@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from agent_pm.trace_export import schedule_trace_export
+from agent_pm.observability.export import schedule_trace_export
 
 
 @pytest.mark.asyncio

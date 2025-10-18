@@ -1,4 +1,4 @@
-from agent_pm import alignment_dashboard
+from agent_pm.alignment import dashboard
 
 
 def test_load_alignment_data_uses_api(monkeypatch):
@@ -14,8 +14,8 @@ def test_load_alignment_data_uses_api(monkeypatch):
             {"total_events": 1, "status_counts": {"success": 1}},
         )
 
-    monkeypatch.setattr(alignment_dashboard, "fetch_from_api", fake_fetch)
-    events, summary, source = alignment_dashboard.load_alignment_data(limit=25)
+    monkeypatch.setattr(dashboard, "fetch_from_api", fake_fetch)
+    events, summary, source = dashboard.load_alignment_data(limit=25)
 
     assert events and source == "api"
     assert summary["total_events"] == 1
@@ -27,9 +27,9 @@ def test_load_alignment_data_fallback(monkeypatch):
     def failing_fetch(url, key, limit):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(alignment_dashboard, "fetch_from_api", failing_fetch)
+    monkeypatch.setattr(dashboard, "fetch_from_api", failing_fetch)
     monkeypatch.setattr(
-        alignment_dashboard,
+        dashboard,
         "get_alignment_summary",
         lambda limit: (
             [{"notification": {"status": "success"}}],
@@ -37,7 +37,7 @@ def test_load_alignment_data_fallback(monkeypatch):
         ),
     )
 
-    events, summary, source = alignment_dashboard.load_alignment_data(limit=10)
+    events, summary, source = dashboard.load_alignment_data(limit=10)
 
     assert source == "local"
     assert summary["total_events"] == 1
@@ -62,7 +62,7 @@ def test_flatten_alignment_records_builds_rows():
         }
     ]
 
-    records = alignment_dashboard.flatten_alignment_records(events)
+    records = dashboard.flatten_alignment_records(events)
 
     assert len(records) == 1
     assert records[0]["event_id"] == "evt-1"
@@ -78,7 +78,7 @@ def test_status_trend_by_day_groups_counts():
         {"created_at": "2024-01-02T01:00:00", "notification": {"status": "success"}},
     ]
 
-    trend = alignment_dashboard.status_trend_by_day(events)
+    trend = dashboard.status_trend_by_day(events)
 
     assert trend[0]["success"] == 1
     assert trend[0]["error"] == 1
@@ -97,7 +97,7 @@ def test_status_counts_by_idea_breakdown():
         },
     ]
 
-    breakdown = alignment_dashboard.status_counts_by_idea(events)
+    breakdown = dashboard.status_counts_by_idea(events)
 
     assert breakdown[0]["idea"] == "Beta"
     assert breakdown[0]["success"] == 1
@@ -111,7 +111,7 @@ def test_followup_conversion_metrics():
         {"notification": {"status": "error"}, "followup": {"status": "dismissed"}},
     ]
 
-    metrics = alignment_dashboard.followup_conversion(events)
+    metrics = dashboard.followup_conversion(events)
 
     assert metrics["totals"]["success"] == 2
     assert metrics["followup_counts"]["ack"] == 1

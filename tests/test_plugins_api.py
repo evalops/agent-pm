@@ -4,8 +4,8 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from agent_pm import auth
-from agent_pm.auth import AdminKeyDep, APIKeyDep
+from agent_pm.api import auth
+from agent_pm.api.auth import AdminKeyDep, APIKeyDep
 from agent_pm.plugins import plugin_registry
 from agent_pm.settings import settings
 from app import app
