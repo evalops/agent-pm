@@ -59,7 +59,7 @@ from agent_pm.observability.structured import (
     get_correlation_id,
     set_correlation_id,
 )
-from agent_pm.storage.tasks import TaskQueue, TaskStatus
+from agent_pm.storage.tasks import TaskQueue, TaskStatus, get_task_queue
 from agent_pm.tools import registry
 from agent_pm.observability.export import schedule_trace_export
 from agent_pm.observability.traces import list_traces as list_trace_files
@@ -85,14 +85,19 @@ class FollowupUpdate(BaseModel):
 @app.on_event("startup")
 async def startup_event():
     global _task_queue
-    _task_queue = TaskQueue(max_workers=settings.task_queue_workers)
-    _task_queue.start()
+    _task_queue = await get_task_queue()
+    if settings.task_queue_backend == "memory" and isinstance(_task_queue, TaskQueue):
+        _task_queue.start()
     logger.info("Agent PM service started")
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    if _task_queue:
+    if (
+        _task_queue
+        and settings.task_queue_backend == "memory"
+        and hasattr(_task_queue, "stop")
+    ):
         await _task_queue.stop()
     logger.info("Agent PM service stopped")
 

@@ -12,7 +12,9 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
+from ..settings import settings
 from ..utils.datetime import utc_now
+from .redis import enqueue_task as redis_enqueue_task, get_redis_pool
 
 logger = logging.getLogger(__name__)
 
@@ -179,10 +181,27 @@ class TaskQueue:
 _task_queue: TaskQueue | None = None
 
 
-def get_task_queue() -> TaskQueue:
+async def get_task_queue() -> TaskQueue:
     """Get or create the global task queue."""
     global _task_queue
     if _task_queue is None:
-        _task_queue = TaskQueue(max_workers=5)
-        _task_queue.start()
+        backend = settings.task_queue_backend
+        if backend == "redis":
+            pool = await get_redis_pool()
+
+            class RedisTaskQueue(TaskQueue):
+                async def enqueue(  # type: ignore[override]
+                    self,
+                    name: str,
+                    coro_fn: Callable[..., Coroutine[Any, Any, Any]],
+                    *args: Any,
+                    max_retries: int = 3,
+                    **kwargs: Any,
+                ) -> str:
+                    return await redis_enqueue_task(pool, name, *args, **kwargs)
+
+            _task_queue = RedisTaskQueue(max_workers=settings.task_queue_workers)
+        else:
+            _task_queue = TaskQueue(max_workers=settings.task_queue_workers)
+            _task_queue.start()
     return _task_queue

@@ -3,6 +3,8 @@
 from functools import lru_cache
 from pathlib import Path
 
+from typing import Literal
+
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -69,7 +71,8 @@ class Settings(BaseSettings):
     admin_api_key: str | None = Field(None, alias="ADMIN_API_KEY")
     log_format: str = Field("json", alias="LOG_FORMAT")  # json or text
     task_queue_workers: int = Field(5, alias="TASK_QUEUE_WORKERS")
-    database_url: str | None = Field(None, alias="DATABASE_URL")
+    task_queue_backend: Literal["memory", "redis"] = Field("memory", alias="TASK_QUEUE_BACKEND")
+    database_url: str | None = Field("sqlite+aiosqlite:///./data/agent_pm.db", alias="DATABASE_URL")
     database_echo: bool = Field(False, alias="DATABASE_ECHO")
     redis_url: str = Field("redis://localhost:6379", alias="REDIS_URL")
     enable_opentelemetry: bool = Field(False, alias="ENABLE_OPENTELEMETRY")
