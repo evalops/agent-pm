@@ -23,6 +23,7 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    command: redis-server --save 60 1 --loglevel warning
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -36,7 +37,8 @@ services:
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - DATABASE_URL=postgresql+asyncpg://agent_pm:agent_pm_dev@postgres:5432/agent_pm
-      - REDIS_URL=redis://redis:6379
+      - REDIS_URL=redis://redis:6379/0
+      - TASK_QUEUE_BACKEND=redis
       - DRY_RUN=true
       - LOG_FORMAT=json
       - ENABLE_OPENTELEMETRY=false
@@ -45,20 +47,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: uvicorn app:app --host 0.0.0.0 --port 8000 --reload
-
-  arq_worker:
-    build: .
-    environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - DATABASE_URL=postgresql+asyncpg://agent_pm:agent_pm_dev@postgres:5432/agent_pm
-      - REDIS_URL=redis://redis:6379
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    command: arq agent_pm.redis_queue.WorkerSettings
+    command: uv run uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 
 volumes:
   postgres_data:

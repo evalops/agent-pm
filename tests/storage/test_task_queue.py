@@ -20,7 +20,7 @@ async def failing_task(counter: dict[str, int]) -> None:
 @pytest.mark.asyncio
 async def test_task_queue_executes_successfully():
     queue = TaskQueue(max_workers=1)
-    queue.start()
+    await queue.start()
 
     task_id = await queue.enqueue("double", sample_task, 3)
 
@@ -43,7 +43,7 @@ async def test_task_queue_executes_successfully():
 @pytest.mark.asyncio
 async def test_task_queue_retries_then_fails(monkeypatch):
     queue = TaskQueue(max_workers=1)
-    queue.start()
+    await queue.start()
 
     counter: dict[str, int] = {}
 

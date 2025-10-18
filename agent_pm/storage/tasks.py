@@ -61,7 +61,7 @@ class TaskQueue:
         self.running = False
         self._lock = asyncio.Lock()
 
-    def start(self):
+    async def start(self):
         """Start background workers."""
         if self.running:
             return
@@ -203,5 +203,5 @@ async def get_task_queue() -> TaskQueue:
             _task_queue = RedisTaskQueue(max_workers=settings.task_queue_workers)
         else:
             _task_queue = TaskQueue(max_workers=settings.task_queue_workers)
-            _task_queue.start()
+            await _task_queue.start()
     return _task_queue

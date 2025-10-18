@@ -19,7 +19,7 @@ async def failing_task() -> None:
 @pytest.mark.asyncio
 async def test_task_queue_enqueue_and_execute():
     queue = TaskQueue(max_workers=2)
-    queue.start()
+    await queue.start()
     try:
         task_id = await queue.enqueue("sample_task", sample_task, 5)
         assert task_id
@@ -37,7 +37,7 @@ async def test_task_queue_enqueue_and_execute():
 @pytest.mark.asyncio
 async def test_task_queue_retry_logic():
     queue = TaskQueue(max_workers=1)
-    queue.start()
+    await queue.start()
     try:
         task_id = await queue.enqueue("failing_task", failing_task, max_retries=2)
         assert task_id
@@ -56,7 +56,7 @@ async def test_task_queue_retry_logic():
 @pytest.mark.asyncio
 async def test_task_queue_list_tasks():
     queue = TaskQueue(max_workers=2)
-    queue.start()
+    await queue.start()
     try:
         task_id1 = await queue.enqueue("task1", sample_task, 1)
         task_id2 = await queue.enqueue("task2", sample_task, 2)

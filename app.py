@@ -59,7 +59,7 @@ from agent_pm.observability.structured import (
     get_correlation_id,
     set_correlation_id,
 )
-from agent_pm.storage.tasks import TaskQueue, TaskStatus, get_task_queue
+from agent_pm.storage.tasks import TaskStatus, get_task_queue
 from agent_pm.tools import registry
 from agent_pm.observability.export import schedule_trace_export
 from agent_pm.observability.traces import list_traces as list_trace_files
@@ -73,7 +73,7 @@ else:
 logger = logging.getLogger(__name__)
 app = FastAPI(title="Agent PM", version="0.1.0")
 _jira_lock = asyncio.Lock()
-_task_queue: TaskQueue | None = None
+_task_queue = None
 
 plugin_registry.attach_app(app)
 
@@ -86,18 +86,14 @@ class FollowupUpdate(BaseModel):
 async def startup_event():
     global _task_queue
     _task_queue = await get_task_queue()
-    if settings.task_queue_backend == "memory" and isinstance(_task_queue, TaskQueue):
-        _task_queue.start()
+    if settings.task_queue_backend == "memory":
+        await _task_queue.start()
     logger.info("Agent PM service started")
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    if (
-        _task_queue
-        and settings.task_queue_backend == "memory"
-        and hasattr(_task_queue, "stop")
-    ):
+    if settings.task_queue_backend == "memory" and _task_queue:
         await _task_queue.stop()
     logger.info("Agent PM service stopped")
 
