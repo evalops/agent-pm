@@ -13,11 +13,11 @@ from app import app
 async def _create_client():
     transport = ASGITransport(app=app)
     client = AsyncClient(transport=transport, base_url="http://test")
-    await app_module.startup_event()
+    await app.router.startup()
 
     async def cleanup():
+        await app.router.shutdown()
         await client.aclose()
-        await app_module.shutdown_event()
 
     client.cleanup = cleanup  # type: ignore[attr-defined]
     return client
@@ -30,16 +30,14 @@ async def test_tasks_admin_endpoints_with_memory_backend(monkeypatch):
 
     try:
         client = await _create_client()
-        try:
-            response = await client.get("/tasks/dead-letter")
-            assert response.status_code == 200
-            assert response.json()["dead_letter"] == []
+        response = await client.get("/tasks/dead-letter")
+        assert response.status_code == 200
+        assert response.json()["dead_letter"] == []
 
-            worker_resp = await client.get("/tasks/workers")
-            assert worker_resp.status_code == 200
-            assert worker_resp.json() == {"workers": {}}
-        finally:
-            await client.cleanup()
+        worker_resp = await client.get("/tasks/workers")
+        assert worker_resp.status_code == 200
+        assert worker_resp.json() == {"workers": {}}
+        await client.cleanup()
     finally:
         app.dependency_overrides.clear()
 
@@ -116,48 +114,52 @@ async def test_tasks_admin_endpoints_surface_queue_data(monkeypatch):
 
     try:
         client = await _create_client()
+        original_backend = settings.task_queue_backend
+        stub = StubQueue()
+        original_get_queue = app_module.get_task_queue
+        original_queue = app_module._task_queue
+
+        async def fake_get_queue():
+            return stub
+
+        monkeypatch.setattr(app_module, "get_task_queue", fake_get_queue)
+        settings.task_queue_backend = "memory"
         try:
-            original_backend = settings.task_queue_backend
-            original_queue = app_module._task_queue
-            stub = StubQueue()
-            app_module._task_queue = stub
-            settings.task_queue_backend = "memory"
-            try:
-                dead_resp = await client.get(
-                    "/tasks/dead-letter", params={"limit": 5, "offset": 0, "workflow_id": "plan-123"}
-                )
-                assert dead_resp.status_code == 200
-                assert dead_resp.json()["dead_letter"][0]["task_id"] == "dead-1"
-                assert stub.limit == 5
-                assert stub.workflow_id == "plan-123"
+            dead_resp = await client.get(
+                "/tasks/dead-letter", params={"limit": 5, "offset": 0, "workflow_id": "plan-123"}
+            )
+            assert dead_resp.status_code == 200
+            assert dead_resp.json()["dead_letter"][0]["task_id"] == "dead-1"
+            assert stub.limit == 5
+            assert stub.workflow_id == "plan-123"
 
-                del_resp = await client.delete("/tasks/dead-letter/dead-1")
-                assert del_resp.status_code == 200
-                assert stub.deleted == "dead-1"
+            del_resp = await client.delete("/tasks/dead-letter/dead-1")
+            assert del_resp.status_code == 200
+            assert stub.deleted == "dead-1"
 
-                detail_resp = await client.get("/tasks/dead-letter/dead-1")
-                assert detail_resp.status_code == 200
-                assert detail_resp.json()["task_id"] == "dead-1"
+            detail_resp = await client.get("/tasks/dead-letter/dead-1")
+            assert detail_resp.status_code == 200
+            assert detail_resp.json()["task_id"] == "dead-1"
 
-                worker_resp = await client.get("/tasks/workers")
-                assert worker_resp.status_code == 200
-                assert worker_resp.json() == {"workers": {"worker:1": {"status": "ok"}}}
+            worker_resp = await client.get("/tasks/workers")
+            assert worker_resp.status_code == 200
+            assert worker_resp.json() == {"workers": {"worker:1": {"status": "ok"}}}
 
-                requeue_resp = await client.post("/tasks/dead-letter/dead-1/requeue")
-                assert requeue_resp.status_code == 200
-                assert stub.requeued == "dead-1"
-                assert requeue_resp.json()["status"] == "requeued"
+            requeue_resp = await client.post("/tasks/dead-letter/dead-1/requeue")
+            assert requeue_resp.status_code == 200
+            assert stub.requeued == "dead-1"
+            assert requeue_resp.json()["status"] == "requeued"
 
-                purge_resp = await client.delete("/tasks/dead-letter")
-                assert purge_resp.status_code == 200
-                assert purge_resp.json()["deleted"] == 1
+            purge_resp = await client.delete("/tasks/dead-letter")
+            assert purge_resp.status_code == 200
+            assert purge_resp.json()["deleted"] == 1
 
-                purge_resp_age = await client.delete("/tasks/dead-letter", params={"older_than_minutes": 10})
-                assert purge_resp_age.status_code == 200
-            finally:
-                settings.task_queue_backend = original_backend
-                app_module._task_queue = original_queue
+            purge_resp_age = await client.delete("/tasks/dead-letter", params={"older_than_minutes": 10})
+            assert purge_resp_age.status_code == 200
         finally:
+            settings.task_queue_backend = original_backend
+            app_module._task_queue = original_queue
+            monkeypatch.setattr(app_module, "get_task_queue", original_get_queue)
             await client.cleanup()
     finally:
         app.dependency_overrides.clear()

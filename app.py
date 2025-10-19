@@ -8,6 +8,8 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any
 
+from contextlib import asynccontextmanager
+
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, model_validator
@@ -68,36 +70,39 @@ from agent_pm.storage.database import PRDVersion, get_db
 from agent_pm.storage.tasks import TaskStatus, get_task_queue
 from agent_pm.tools import registry
 
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    global _task_queue
+    _task_queue = await get_task_queue()
+    await _task_queue.start()
+    logger.info("Agent PM service started")
+    try:
+        yield
+    finally:
+        if _task_queue:
+            await _task_queue.stop()
+        logger.info("Agent PM service stopped")
+
+
+lifespan_app = FastAPI(title="Agent PM", version="0.1.0", lifespan=lifespan)
+
 if settings.log_format == "json":
     configure_structured_logging()
 else:
     configure_logging(settings.trace_dir)
 
 logger = logging.getLogger(__name__)
-app = FastAPI(title="Agent PM", version="0.1.0")
 _jira_lock = asyncio.Lock()
 _task_queue = None
 
-plugin_registry.attach_app(app)
+plugin_registry.attach_app(lifespan_app)
 
 
 class FollowupUpdate(BaseModel):
     status: str
 
 
-@app.on_event("startup")
-async def startup_event():
-    global _task_queue
-    _task_queue = await get_task_queue()
-    await _task_queue.start()
-    logger.info("Agent PM service started")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    if _task_queue:
-        await _task_queue.stop()
-    logger.info("Agent PM service stopped")
+app = lifespan_app
 
 
 async def ensure_project_allowed(plan: TicketPlan) -> TicketPlan:
@@ -435,10 +440,9 @@ async def metrics() -> PlainTextResponse:
 @app.get("/tasks")
 async def list_tasks(status: str | None = None, limit: int = 50, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
     """List all tasks with optional status filter."""
-    if not _task_queue:
-        raise HTTPException(status_code=503, detail="Task queue not initialized")
+    task_queue = await get_task_queue()
     task_status = TaskStatus(status) if status else None
-    tasks = await _task_queue.list_tasks(status=task_status, limit=limit)
+    tasks = await task_queue.list_tasks(status=task_status, limit=limit)
     return {
         "tasks": [
             {
@@ -463,9 +467,8 @@ async def list_dead_letter(
     error_type: str | None = None,
     _admin_key: AdminKeyDep = None,
 ) -> dict[str, Any]:
-    if not _task_queue:
-        raise HTTPException(status_code=503, detail="Task queue not initialized")
-    items, total = await _task_queue.list_dead_letters(
+    task_queue = await get_task_queue()
+    items, total = await task_queue.list_dead_letters(
         limit=limit, offset=offset, workflow_id=workflow_id, error_type=error_type
     )
     return {
@@ -487,9 +490,8 @@ async def list_dead_letter(
 
 @app.get("/tasks/dead-letter/{task_id}")
 async def get_dead_letter(task_id: str, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
-    if not _task_queue:
-        raise HTTPException(status_code=503, detail="Task queue not initialized")
-    item = await _task_queue.get_dead_letter(task_id)
+    task_queue = await get_task_queue()
+    item = await task_queue.get_dead_letter(task_id)
     if not item:
         raise HTTPException(status_code=404, detail="Dead-letter task not found")
     return item
@@ -497,9 +499,8 @@ async def get_dead_letter(task_id: str, _admin_key: AdminKeyDep = None) -> dict[
 
 @app.delete("/tasks/dead-letter/{task_id}")
 async def delete_dead_letter(task_id: str, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
-    if not _task_queue:
-        raise HTTPException(status_code=503, detail="Task queue not initialized")
-    await _task_queue.delete_dead_letter(task_id)
+    task_queue = await get_task_queue()
+    await task_queue.delete_dead_letter(task_id)
     return {"task_id": task_id, "status": "deleted"}
 
 
@@ -507,28 +508,25 @@ async def delete_dead_letter(task_id: str, _admin_key: AdminKeyDep = None) -> di
 async def purge_dead_letters(
     older_than_minutes: int | None = None, _admin_key: AdminKeyDep = None
 ) -> dict[str, int]:
-    if not _task_queue:
-        raise HTTPException(status_code=503, detail="Task queue not initialized")
+    task_queue = await get_task_queue()
     if older_than_minutes is None:
-        deleted = await _task_queue.purge_dead_letters()
+        deleted = await task_queue.purge_dead_letters()
     else:
-        deleted = await _task_queue.purge_dead_letters_older_than(timedelta(minutes=older_than_minutes))
+        deleted = await task_queue.purge_dead_letters_older_than(timedelta(minutes=older_than_minutes))
     return {"deleted": deleted}
 
 
 @app.get("/tasks/workers")
 async def worker_status(_admin_key: AdminKeyDep = None) -> dict[str, Any]:
-    if not _task_queue:
-        raise HTTPException(status_code=503, detail="Task queue not initialized")
-    return {"workers": await _task_queue.worker_heartbeats()}
+    task_queue = await get_task_queue()
+    return {"workers": await task_queue.worker_heartbeats()}
 
 
 @app.get("/tasks/{task_id}")
 async def get_task(task_id: str, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
     """Get task status by ID."""
-    if not _task_queue:
-        raise HTTPException(status_code=503, detail="Task queue not initialized")
-    task = await _task_queue.get_task(task_id)
+    task_queue = await get_task_queue()
+    task = await task_queue.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     return {
@@ -545,9 +543,8 @@ async def get_task(task_id: str, _admin_key: AdminKeyDep = None) -> dict[str, An
 
 @app.post("/tasks/dead-letter/{task_id}/requeue")
 async def requeue_dead_letter(task_id: str, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
-    if not _task_queue:
-        raise HTTPException(status_code=503, detail="Task queue not initialized")
-    payload = await _task_queue.requeue_dead_letter(task_id)
+    task_queue = await get_task_queue()
+    payload = await task_queue.requeue_dead_letter(task_id)
     if payload is None:
         raise HTTPException(status_code=404, detail="Dead-letter task not found")
     return {"task_id": payload.get("task_id", task_id), "status": "requeued"}
