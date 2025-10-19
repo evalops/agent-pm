@@ -323,6 +323,7 @@ async def get_task_queue() -> TaskQueue:
                     recent_failures: dict[str, list[datetime]] = {}
                     auto_requeue_counts: dict[str, int] = {}
                     last_alert_sent: dict[str, datetime] = {}
+                    failure_metrics: dict[str, list[bool]] = {}
 
                     while self.running:
                         auto_errors = set(settings.task_queue_auto_requeue_errors)
@@ -371,6 +372,23 @@ async def get_task_queue() -> TaskQueue:
                                 last_alert_sent[error_type] = now
                             except Exception as exc:  # pragma: no cover - logging
                                 logger.error("Failed to send Slack alert: %s", exc)
+
+                        async def _apply_adaptive_policy(task_name: str) -> None:
+                            samples = failure_metrics.get(task_name, [])
+                            if len(samples) < settings.task_queue_adaptive_min_samples:
+                                return
+                            failure_rate = 1 - (sum(1 for success in samples if success) / len(samples))
+                            if failure_rate < settings.task_queue_adaptive_failure_threshold:
+                                return
+                            policy = await get_retry_policy(self._redis, task_name) or {}
+                            policy.setdefault("max_retries", payload.get("max_retries", 3))
+                            policy.setdefault("timeout", self._task_timeout)
+                            policy.setdefault("backoff_base", self._backoff_base)
+                            policy.setdefault("backoff_max", self._backoff_max)
+                            policy["max_retries"] = min(int(policy["max_retries"]) + 1, settings.task_queue_max_auto_requeues)
+                            policy["timeout"] = float(policy.get("timeout", self._task_timeout)) + 5.0
+                            await set_retry_policy(self._redis, task_name, policy)
+                            failure_metrics[task_name] = []
 
                         payload = await self.pop()
                         if not payload:
@@ -460,6 +478,9 @@ async def get_task_queue() -> TaskQueue:
                                         auto_requeue_counts[key] = count + 1
                                         if auto_payload:
                                             payload = auto_payload
+                                metrics = failure_metrics.setdefault(name, [])
+                                metrics.append(False)
+                                await _apply_adaptive_policy(name)
                                 if _record_failure(error_type, identifier):
                                     await _send_alert(error_type, payload)
                                 continue
@@ -469,9 +490,15 @@ async def get_task_queue() -> TaskQueue:
                                 float(policy.get("backoff_max", self._backoff_max)),
                             )
                             await asyncio.sleep(backoff)
+                            metrics = failure_metrics.setdefault(name, [])
+                            metrics.append(False)
+                            await _apply_adaptive_policy(name)
                             await redis_enqueue_task(self._redis, name, payload)
                             continue
 
+                        metrics = failure_metrics.setdefault(name, [])
+                        metrics.append(True)
+                        await _apply_adaptive_policy(name)
                         await set_task_result(self._redis, task_id, {"status": "completed", "result": result})
                         record_task_completion(self.queue_name, TaskStatus.COMPLETED.value)
                         record_task_latency(self.queue_name, (utc_now() - start).total_seconds())

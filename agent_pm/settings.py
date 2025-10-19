@@ -86,6 +86,8 @@ class Settings(BaseSettings):
     pagerduty_routing_key: str | None = Field(None, alias="PAGERDUTY_ROUTING_KEY")
     task_queue_playbooks: dict[str, str] = Field(default_factory=dict, alias="TASK_QUEUE_PLAYBOOKS")
     pagerduty_service_name: str | None = Field(None, alias="PAGERDUTY_SERVICE_NAME")
+    task_queue_adaptive_failure_threshold: float = Field(0.6, alias="TASK_QUEUE_ADAPTIVE_FAILURE_THRESHOLD")
+    task_queue_adaptive_min_samples: int = Field(10, alias="TASK_QUEUE_ADAPTIVE_MIN_SAMPLES")
     database_url: str | None = Field("sqlite+aiosqlite:///./data/agent_pm.db", alias="DATABASE_URL")
     database_echo: bool = Field(False, alias="DATABASE_ECHO")
     redis_url: str = Field("redis://localhost:6379", alias="REDIS_URL")

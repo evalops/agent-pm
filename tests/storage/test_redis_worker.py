@@ -1,4 +1,5 @@
 import asyncio
+from typing import Any
 from collections import deque
 
 import pytest
@@ -204,3 +205,46 @@ async def test_auto_triage_requeues_and_alerts(redis_queue, monkeypatch):
     assert auto_metric == 1
     assert alert_metric == 1
     assert calls
+
+
+@pytest.mark.asyncio
+async def test_adaptive_retry_policy_updates(redis_queue, monkeypatch):
+    queue, fake = redis_queue
+
+    monkeypatch.setattr(tasks_module.settings, "task_queue_adaptive_min_samples", 2)
+    monkeypatch.setattr(tasks_module.settings, "task_queue_adaptive_failure_threshold", 0.5)
+    monkeypatch.setattr(tasks_module.settings, "task_queue_max_auto_requeues", 10)
+
+    policies: dict[str, dict[str, Any]] = {}
+
+    async def fake_get_policy(client, task_name: str):
+        return policies.get(task_name)
+
+    async def fake_set_policy(client, task_name: str, policy: dict[str, Any]):
+        policies[task_name] = policy
+
+    monkeypatch.setattr(tasks_module, "get_retry_policy", fake_get_policy)
+    monkeypatch.setattr(tasks_module, "set_retry_policy", fake_set_policy)
+
+    attempts = {"count": 0}
+
+    async def unreliable_task() -> str:
+        attempts["count"] += 1
+        if attempts["count"] <= 2:
+            raise RuntimeError("flaky")
+        return "ok"
+
+    task_id = await queue.enqueue("unstable", unreliable_task, max_retries=5)
+
+    result = None
+    for _ in range(100):
+        result = await redis_helpers.get_task_result(fake, task_id)
+        if result:
+            break
+        await asyncio.sleep(0.05)
+
+    assert result is not None
+    assert result["status"] == "completed"
+    assert "unstable" in policies
+    assert policies["unstable"]["max_retries"] == 6
+    assert policies["unstable"]["timeout"] == tasks_module.settings.task_queue_task_timeout + 5.0
