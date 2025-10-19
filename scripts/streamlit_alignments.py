@@ -10,7 +10,6 @@ from typing import Any
 import pandas as pd
 import requests
 import streamlit as st
-
 from agent_pm.alignment_dashboard import (
     flatten_alignment_records,
     followup_conversion,
@@ -19,6 +18,7 @@ from agent_pm.alignment_dashboard import (
     status_counts_by_idea,
     status_trend_by_day,
 )
+
 from agent_pm.utils.datetime import utc_now_isoformat
 
 st.set_page_config(page_title="Goal Alignment Insights", layout="wide")
