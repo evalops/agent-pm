@@ -38,6 +38,12 @@ dead_letter_auto_requeue_total = Counter(
     labelnames=("queue", "error_type"),
 )
 
+dead_letter_alert_total = Counter(
+    "task_dead_letter_alert_total",
+    "Dead-letter alert notifications",
+    labelnames=("queue", "error_type"),
+)
+
 planner_requests_total = Counter(
     "planner_requests_total",
     "Total planner invocations",
@@ -246,4 +252,5 @@ __all__ = [
     "dead_letter_purged_total",
     "dead_letter_active_gauge",
     "dead_letter_auto_requeue_total",
+    "dead_letter_alert_total",
 ]

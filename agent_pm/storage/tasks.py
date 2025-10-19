@@ -15,6 +15,7 @@ from typing import Any
 
 from ..observability.metrics import (
     dead_letter_active_gauge,
+    dead_letter_alert_total,
     dead_letter_auto_requeue_total,
     dead_letter_purged_total,
     dead_letter_recorded_total,
@@ -318,7 +319,50 @@ async def get_task_queue() -> TaskQueue:
 
                 async def _worker(self, worker_id: int):
                     logger.info("Redis worker %d started", worker_id)
+                    recent_failures: dict[str, list[datetime]] = {}
+
                     while self.running:
+                        auto_errors = set(settings.task_queue_auto_requeue_errors)
+                        alert_threshold = settings.task_queue_alert_threshold
+                        alert_window = timedelta(minutes=settings.task_queue_alert_window_minutes)
+                        alert_channel = settings.task_queue_alert_channel or settings.slack_status_channel
+
+                        def _should_auto_requeue(err_type: str | None) -> bool:
+                            if not err_type:
+                                return False
+                            return err_type in auto_errors
+
+                        def _record_failure(err_type: str | None, task_identifier: str) -> bool:
+                            if not err_type:
+                                return False
+                            now = utc_now()
+                            key = f"{err_type}:{task_identifier}"
+                            entries = recent_failures.setdefault(key, [])
+                            entries.append(now)
+                            cutoff = now - alert_window
+                            recent_failures[key] = [ts for ts in entries if ts >= cutoff]
+                            return len(recent_failures[key]) >= alert_threshold
+
+                        async def _send_alert(error_type: str, payload: dict[str, Any]) -> None:
+                            if not alert_channel:
+                                return
+                            if settings.dry_run or not slack_client.enabled:
+                                logger.warning(
+                                    "Slack alert skipped (dry run): %s", error_type
+                                )
+                                return
+                            body = (
+                                f":rotating_light: Dead-letter threshold exceeded\n"
+                                f"Queue: `{self.queue_name}`\n"
+                                f"Error: `{error_type}`\n"
+                                f"Task: `{payload.get('name', 'unknown')}`"
+                            )
+                            try:
+                                await slack_client.post_digest(body, alert_channel)
+                                dead_letter_alert_total.labels(queue=self.queue_name, error_type=error_type).inc()
+                            except Exception as exc:  # pragma: no cover - logging
+                                logger.error("Failed to send Slack alert: %s", exc)
+
                         payload = await self.pop()
                         if not payload:
                             await asyncio.sleep(self._poll_interval)
@@ -383,13 +427,23 @@ async def get_task_queue() -> TaskQueue:
                                 payload["error_message"] = str(exc)
                                 payload["stack_trace"] = traceback.format_exc()
                                 payload["worker_id"] = worker_id
+                                error_type = payload.get("error_type", "unknown")
                                 await record_dead_letter(self._redis, payload)
                                 dead_letter_recorded_total.labels(
                                     queue=self.queue_name,
-                                    error_type=payload.get("error_type", "unknown"),
+                                    error_type=error_type,
                                 ).inc()
                                 record_task_completion(self.queue_name, TaskStatus.FAILED.value)
                                 record_task_latency(self.queue_name, (utc_now() - start).total_seconds())
+                                identifier = payload.get("metadata", {}).get("workflow_id") or payload.get("name", "unknown")
+                                if _should_auto_requeue(error_type):
+                                    await self.requeue_dead_letter(
+                                        task_id,
+                                        automatic=True,
+                                        notify=False,
+                                    )
+                                if _record_failure(error_type, identifier):
+                                    await _send_alert(error_type, payload)
                                 continue
 
                             backoff = min(
