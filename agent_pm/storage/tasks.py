@@ -26,7 +26,8 @@ from ..observability.metrics import (
 )
 from ..settings import settings
 from ..utils.datetime import utc_now
-from ..clients.slack_client import slack_client
+from ..clients import pagerduty_client, slack_client
+from ..tasks.playbooks import run_playbook
 from .redis import (
     append_dead_letter_audit,
     clear_dead_letter,
@@ -444,6 +445,9 @@ async def get_task_queue() -> TaskQueue:
                                 record_task_completion(self.queue_name, TaskStatus.FAILED.value)
                                 record_task_latency(self.queue_name, (utc_now() - start).total_seconds())
                                 identifier = payload.get("metadata", {}).get("workflow_id") or payload.get("name", "unknown")
+                                playbook_name = settings.task_queue_playbooks.get(error_type)
+                                if playbook_name:
+                                    await run_playbook(playbook_name, payload, self, error_type)
                                 if _should_auto_requeue(error_type):
                                     key = f"{identifier}:{error_type}"
                                     count = auto_requeue_counts.get(key, 0)
@@ -524,6 +528,9 @@ async def get_task_queue() -> TaskQueue:
 
                 async def worker_heartbeats(self) -> dict[str, dict[str, Any]]:
                     return await list_heartbeats(self._redis)
+
+                async def get_client(self):
+                    return self._redis
 
                 async def requeue_dead_letter(
                     self,
