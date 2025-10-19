@@ -6,6 +6,7 @@ from httpx import ASGITransport, AsyncClient
 
 import app as app_module
 from agent_pm.api.auth import AdminKeyDep
+from agent_pm.storage import syncs as sync_storage
 from agent_pm.settings import settings
 from app import app
 
@@ -41,6 +42,41 @@ async def test_tasks_admin_endpoints_with_memory_backend(monkeypatch):
         health_resp = await client.get("/tasks/health")
         assert health_resp.status_code == 200
         assert "queue" in health_resp.json()
+        await client.cleanup()
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_sync_status_endpoint(monkeypatch):
+    monkeypatch.setattr(settings, "task_queue_backend", "memory")
+    app.dependency_overrides[AdminKeyDep] = lambda: "admin-test-key"
+
+    records = [
+        {
+            "connector": "github",
+            "status": "success",
+            "records": 3,
+            "duration_ms": 42.0,
+            "metadata": {"since": None},
+            "error": None,
+            "started_at": "2024-01-01T00:00:00+00:00",
+            "completed_at": "2024-01-01T00:00:01+00:00",
+        }
+    ]
+
+    async def fake_list_recent_syncs(limit: int = 50):
+        assert limit == 25
+        return records
+
+    monkeypatch.setattr(sync_storage, "list_recent_syncs", fake_list_recent_syncs)
+
+    try:
+        client = await _create_client()
+        response = await client.get("/sync/status", params={"limit": 25})
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["syncs"] == records
         await client.cleanup()
     finally:
         app.dependency_overrides.clear()

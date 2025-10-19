@@ -136,6 +136,22 @@ class AlignmentEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
 
 
+class ConnectorSync(Base):
+    """Historical record of connector synchronization runs."""
+
+    __tablename__ = "connector_syncs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    connector: Mapped[str] = mapped_column(String(64), index=True)
+    status: Mapped[str] = mapped_column(String(16), index=True)
+    records: Mapped[int] = mapped_column(Integer, default=0)
+    duration_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    details: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 # Database engine and session factory
 _engine = None
 _session_factory = None

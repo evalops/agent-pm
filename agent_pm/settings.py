@@ -45,8 +45,34 @@ class Settings(BaseSettings):
             return scopes or default_scopes
         return value
 
+    @staticmethod
+    def _parse_csv_list(value: str | list[str] | None) -> list[str]:
+        if value is None or value == "":
+            return []
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        return value
+
+    @field_validator("github_repositories", "slack_sync_channels", "gmail_label_filter", "notion_database_ids", mode="before")
+    @classmethod
+    def _parse_string_lists(cls, value):
+        return cls._parse_csv_list(value)
+
+    @field_validator("google_drive_scopes", "gmail_scopes", mode="before")
+    @classmethod
+    def _parse_drive_scopes(cls, value):
+        default_scopes = ["https://www.googleapis.com/auth/drive.readonly"]
+        if value is None or value == "":
+            return default_scopes
+        if isinstance(value, str):
+            scopes = [scope.strip() for scope in value.split(",") if scope.strip()]
+            return scopes or default_scopes
+        return value
+
     slack_bot_token: str | None = Field(None, alias="SLACK_BOT_TOKEN")
     slack_status_channel: str | None = Field(None, alias="SLACK_STATUS_CHANNEL")
+    slack_sync_channels: list[str] = Field(default_factory=list, alias="SLACK_SYNC_CHANNELS")
+    slack_sync_interval_seconds: int = Field(900, alias="SLACK_SYNC_INTERVAL_SECONDS")
     calendar_base_url: str | None = Field(None, alias="CALENDAR_BASE_URL")
     calendar_api_key: str | None = Field(None, alias="CALENDAR_API_KEY")
     calendar_id: str | None = Field(None, alias="CALENDAR_ID")
@@ -57,6 +83,14 @@ class Settings(BaseSettings):
         alias="GOOGLE_CALENDAR_SCOPES",
     )
     google_calendar_delegated_user: str | None = Field(None, alias="GOOGLE_CALENDAR_DELEGATED_USER")
+    calendar_sync_interval_seconds: int = Field(1800, alias="CALENDAR_SYNC_INTERVAL_SECONDS")
+    calendar_sync_window_days: int = Field(14, alias="CALENDAR_SYNC_WINDOW_DAYS")
+    google_drive_scopes: list[str] = Field(
+        default_factory=lambda: ["https://www.googleapis.com/auth/drive.readonly"],
+        alias="GOOGLE_DRIVE_SCOPES",
+    )
+    google_drive_sync_interval_seconds: int = Field(3600, alias="GOOGLE_DRIVE_SYNC_INTERVAL_SECONDS")
+    google_drive_query: str | None = Field(None, alias="GOOGLE_DRIVE_QUERY")
     use_dspy: bool = Field(False, alias="USE_DSPY")
     agent_session_db: Path = Field(Path("./data/agent_sessions.db"), alias="AGENTS_SESSION_DB")
     agent_tools_enabled: bool = Field(False, alias="AGENT_TOOLS_ENABLED")
@@ -94,6 +128,20 @@ class Settings(BaseSettings):
     enable_opentelemetry: bool = Field(False, alias="ENABLE_OPENTELEMETRY")
     otel_service_name: str = Field("agent-pm", alias="OTEL_SERVICE_NAME")
     otel_exporter_endpoint: str | None = Field(None, alias="OTEL_EXPORTER_ENDPOINT")
+    github_repositories: list[str] = Field(default_factory=list, alias="GITHUB_REPOSITORIES")
+    github_sync_interval_seconds: int = Field(900, alias="GITHUB_SYNC_INTERVAL_SECONDS")
+    gmail_service_account_json: str | None = Field(None, alias="GMAIL_SERVICE_ACCOUNT_JSON")
+    gmail_service_account_file: Path | None = Field(None, alias="GMAIL_SERVICE_ACCOUNT_FILE")
+    gmail_scopes: list[str] = Field(
+        default_factory=lambda: ["https://www.googleapis.com/auth/gmail.readonly"],
+        alias="GMAIL_SCOPES",
+    )
+    gmail_delegated_user: str | None = Field(None, alias="GMAIL_DELEGATED_USER")
+    gmail_label_filter: list[str] = Field(default_factory=list, alias="GMAIL_LABEL_FILTER")
+    email_sync_interval_seconds: int = Field(1800, alias="EMAIL_SYNC_INTERVAL_SECONDS")
+    notion_api_token: str | None = Field(None, alias="NOTION_API_TOKEN")
+    notion_database_ids: list[str] = Field(default_factory=list, alias="NOTION_DATABASE_IDS")
+    notion_sync_interval_seconds: int = Field(1800, alias="NOTION_SYNC_INTERVAL_SECONDS")
 
 
 @lru_cache(maxsize=1)

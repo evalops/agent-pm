@@ -67,19 +67,30 @@ from agent_pm.prd.versions import (
 )
 from agent_pm.procedures import loader as procedure_loader
 from agent_pm.settings import settings
+from agent_pm.storage import syncs as sync_storage
 from agent_pm.storage.database import PRDVersion, get_db
 from agent_pm.storage.tasks import TaskStatus, get_task_queue
+from agent_pm.tasks.sync import PeriodicSyncManager, create_default_sync_manager
 from agent_pm.tools import registry
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    global _task_queue
+    global _task_queue, _sync_manager
     _task_queue = await get_task_queue()
     await _task_queue.start()
+    _sync_manager = create_default_sync_manager()
+    try:
+        await _sync_manager.start()
+    except Exception:  # pragma: no cover - defensive startup logging
+        logger.exception("Failed to start periodic sync manager")
+        _sync_manager = None
     logger.info("Agent PM service started")
     try:
         yield
     finally:
+        if _sync_manager is not None:
+            await _sync_manager.stop()
+            _sync_manager = None
         if _task_queue:
             await _task_queue.stop()
         logger.info("Agent PM service stopped")
@@ -95,6 +106,7 @@ else:
 logger = logging.getLogger(__name__)
 _jira_lock = asyncio.Lock()
 _task_queue = None
+_sync_manager: PeriodicSyncManager | None = None
 
 plugin_registry.attach_app(lifespan_app)
 
@@ -114,6 +126,13 @@ async def task_queue_health(_admin_key: AdminKeyDep = None) -> dict[str, Any]:
         "dead_letters": data.dead_letters,
         "auto_triage_enabled": data.auto_triage_enabled,
     }
+
+
+@app.get("/sync/status", dependencies=[Depends(enforce_rate_limit)])
+async def sync_status(limit: int = 50, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
+    limit = max(1, limit)
+    records = await sync_storage.list_recent_syncs(limit=limit)
+    return {"syncs": records}
 
 
 async def ensure_project_allowed(plan: TicketPlan) -> TicketPlan:
