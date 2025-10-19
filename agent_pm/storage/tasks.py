@@ -14,7 +14,7 @@ from typing import Any
 
 from ..settings import settings
 from ..utils.datetime import utc_now
-from .redis import enqueue_task as redis_enqueue_task, get_redis_pool
+from .redis import enqueue_task as redis_enqueue_task, get_redis_client
 
 logger = logging.getLogger(__name__)
 
@@ -187,7 +187,7 @@ async def get_task_queue() -> TaskQueue:
     if _task_queue is None:
         backend = settings.task_queue_backend
         if backend == "redis":
-            pool = await get_redis_pool()
+            client = await get_redis_client()
 
             class RedisTaskQueue(TaskQueue):
                 async def enqueue(  # type: ignore[override]
@@ -198,7 +198,14 @@ async def get_task_queue() -> TaskQueue:
                     max_retries: int = 3,
                     **kwargs: Any,
                 ) -> str:
-                    return await redis_enqueue_task(pool, name, *args, **kwargs)
+                    payload = {
+                        "task_id": uuid.uuid4().hex,
+                        "name": name,
+                        "args": args,
+                        "kwargs": kwargs,
+                        "max_retries": max_retries,
+                    }
+                    return await redis_enqueue_task(client, name, payload)
 
             _task_queue = RedisTaskQueue(max_workers=settings.task_queue_workers)
         else:

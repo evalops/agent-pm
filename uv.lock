@@ -11,7 +11,6 @@ name = "agent-pm"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "arq" },
     { name = "asyncpg" },
     { name = "fastapi" },
     { name = "google-auth" },
@@ -29,7 +28,7 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
-    { name = "redis" },
+    { name = "redis", extras = ["async"] },
     { name = "requests" },
     { name = "rich" },
     { name = "sqlalchemy" },
@@ -47,7 +46,6 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "arq" },
     { name = "asyncpg" },
     { name = "fastapi" },
     { name = "google-auth" },
@@ -69,9 +67,10 @@ requires-dist = [
     { name = "pytest-cov", marker = "extra == 'dev'" },
     { name = "python-dotenv" },
     { name = "pyyaml", specifier = ">=6" },
-    { name = "redis", specifier = ">=5.0" },
+    { name = "redis", extras = ["async"], specifier = ">=5.0" },
     { name = "requests" },
     { name = "rich" },
+    { name = "rq" },
     { name = "ruff", marker = "extra == 'dev'" },
     { name = "sqlalchemy", specifier = ">=2.0" },
     { name = "uvicorn", extras = ["standard"] },
