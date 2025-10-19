@@ -73,6 +73,19 @@ class StubQueue:
         self.requeued = task_id
         return {"task_id": task_id}
 
+    async def get_dead_letter(self, task_id: str) -> dict[str, Any] | None:
+        if task_id == "dead-1":
+            return {
+                "task_id": "dead-1",
+                "name": "explode",
+                "retry_count": 3,
+                "last_error": "boom",
+            }
+        return None
+
+    async def purge_dead_letters(self) -> int:
+        return 1
+
 
 @pytest.mark.asyncio
 async def test_tasks_admin_endpoints_surface_queue_data(monkeypatch):
@@ -97,6 +110,10 @@ async def test_tasks_admin_endpoints_surface_queue_data(monkeypatch):
                 assert del_resp.status_code == 200
                 assert stub.deleted == "dead-1"
 
+                detail_resp = await client.get("/tasks/dead-letter/dead-1")
+                assert detail_resp.status_code == 200
+                assert detail_resp.json()["task_id"] == "dead-1"
+
                 worker_resp = await client.get("/tasks/workers")
                 assert worker_resp.status_code == 200
                 assert worker_resp.json() == {"workers": {"worker:1": {"status": "ok"}}}
@@ -105,6 +122,10 @@ async def test_tasks_admin_endpoints_surface_queue_data(monkeypatch):
                 assert requeue_resp.status_code == 200
                 assert stub.requeued == "dead-1"
                 assert requeue_resp.json()["status"] == "requeued"
+
+                purge_resp = await client.delete("/tasks/dead-letter")
+                assert purge_resp.status_code == 200
+                assert purge_resp.json()["deleted"] == 1
             finally:
                 settings.task_queue_backend = original_backend
                 app_module._task_queue = original_queue

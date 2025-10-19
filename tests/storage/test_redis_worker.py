@@ -37,6 +37,9 @@ class InMemoryRedis:
     async def hdel(self, key: str, field: str):
         self.hashes.setdefault(key, {}).pop(field, None)
 
+    async def hlen(self, key: str) -> int:
+        return len(self.hashes.get(key, {}))
+
     async def expire(self, key: str, ttl: int):
         return None
 

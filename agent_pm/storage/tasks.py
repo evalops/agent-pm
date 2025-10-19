@@ -27,6 +27,7 @@ from .redis import (
     get_redis_client,
     list_heartbeats,
     pop_task,
+    purge_dead_letters,
     record_dead_letter,
     set_task_result,
     write_heartbeat,
@@ -210,6 +211,12 @@ class TaskQueue:
     async def requeue_dead_letter(self, task_id: str) -> dict[str, Any] | None:
         return None
 
+    async def get_dead_letter(self, task_id: str) -> dict[str, Any] | None:
+        return None
+
+    async def purge_dead_letters(self) -> int:
+        return 0
+
 
 # Global task queue instance
 _task_queue: TaskQueue | None = None
@@ -355,6 +362,12 @@ async def get_task_queue() -> TaskQueue:
                     record_task_enqueued(self.queue_name)
                     logger.info("Dead-letter task requeued: %s", task_id)
                     return payload
+
+                async def get_dead_letter(self, task_id: str) -> dict[str, Any] | None:
+                    return await get_dead_letter(self._redis, task_id)
+
+                async def purge_dead_letters(self) -> int:
+                    return await purge_dead_letters(self._redis)
 
             _task_queue = RedisTaskQueue(max_workers=settings.task_queue_workers)
         else:

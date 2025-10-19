@@ -105,6 +105,14 @@ async def clear_dead_letter(client: redis.Redis, task_id: str) -> None:
     await client.hdel(_dead_letter_key(), task_id)
 
 
+async def purge_dead_letters(client: redis.Redis) -> int:
+    count = await client.hlen(_dead_letter_key())
+    if count == 0:
+        return 0
+    await client.delete(_dead_letter_key())
+    return int(count)
+
+
 async def write_heartbeat(client: redis.Redis, worker_id: str, payload: dict[str, Any], ttl: int) -> None:
     await client.hset(_heartbeat_key(), worker_id, json.dumps(payload))
     await client.expire(_heartbeat_key(), ttl)

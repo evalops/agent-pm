@@ -463,12 +463,30 @@ async def list_dead_letter(limit: int = 50, _admin_key: AdminKeyDep = None) -> d
     return {"dead_letter": items, "total": len(items)}
 
 
+@app.get("/tasks/dead-letter/{task_id}")
+async def get_dead_letter(task_id: str, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
+    if not _task_queue:
+        raise HTTPException(status_code=503, detail="Task queue not initialized")
+    item = await _task_queue.get_dead_letter(task_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Dead-letter task not found")
+    return item
+
+
 @app.delete("/tasks/dead-letter/{task_id}")
 async def delete_dead_letter(task_id: str, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
     if not _task_queue:
         raise HTTPException(status_code=503, detail="Task queue not initialized")
     await _task_queue.delete_dead_letter(task_id)
     return {"task_id": task_id, "status": "deleted"}
+
+
+@app.delete("/tasks/dead-letter")
+async def purge_dead_letters(_admin_key: AdminKeyDep = None) -> dict[str, int]:
+    if not _task_queue:
+        raise HTTPException(status_code=503, detail="Task queue not initialized")
+    deleted = await _task_queue.purge_dead_letters()
+    return {"deleted": deleted}
 
 
 @app.get("/tasks/workers")

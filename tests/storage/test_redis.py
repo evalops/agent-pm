@@ -47,8 +47,17 @@ class DummyRedis:
         if key.endswith("dead_letter"):
             self.dead.pop(field, None)
 
+    async def hlen(self, key: str) -> int:
+        if key.endswith("dead_letter"):
+            return len(self.dead)
+        return len(self.results)
+
     async def expire(self, key: str, ttl: int):
         return None
+
+    async def delete(self, key: str):
+        if key.endswith("dead_letter"):
+            self.dead.clear()
 
 
 @pytest.mark.asyncio
@@ -92,6 +101,11 @@ async def test_dead_letter_and_heartbeat_helpers():
     assert stored["task_id"] == "abc"
 
     await redis.clear_dead_letter(client, "abc")
+    assert await redis.fetch_dead_letters(client) == []
+
+    await redis.record_dead_letter(client, payload)
+    removed = await redis.purge_dead_letters(client)
+    assert removed == 1
     assert await redis.fetch_dead_letters(client) == []
 
     await redis.write_heartbeat(client, "worker:1", {"status": "ok"}, ttl=60)
