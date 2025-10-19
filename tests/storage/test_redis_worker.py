@@ -152,6 +152,8 @@ async def test_auto_triage_requeues_and_alerts(redis_queue, monkeypatch):
     monkeypatch.setattr(tasks_module.settings, "task_queue_alert_threshold", 1)
     monkeypatch.setattr(tasks_module.settings, "task_queue_alert_window_minutes", 5)
     monkeypatch.setattr(tasks_module.settings, "task_queue_alert_channel", "alerts")
+    monkeypatch.setattr(tasks_module.settings, "task_queue_alert_cooldown_minutes", 0)
+    monkeypatch.setattr(tasks_module.settings, "task_queue_max_auto_requeues", 2)
 
     tasks_module.slack_client.token = "token"
     tasks_module.slack_client.channel = "alerts"

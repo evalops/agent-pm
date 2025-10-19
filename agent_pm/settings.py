@@ -80,6 +80,8 @@ class Settings(BaseSettings):
     task_queue_alert_threshold: int = Field(5, alias="TASK_QUEUE_ALERT_THRESHOLD")
     task_queue_alert_window_minutes: int = Field(5, alias="TASK_QUEUE_ALERT_WINDOW_MINUTES")
     task_queue_alert_channel: str | None = Field(None, alias="TASK_QUEUE_ALERT_CHANNEL")
+    task_queue_alert_cooldown_minutes: int = Field(10, alias="TASK_QUEUE_ALERT_COOLDOWN_MINUTES")
+    task_queue_max_auto_requeues: int = Field(3, alias="TASK_QUEUE_MAX_AUTO_REQUEUES")
     database_url: str | None = Field("sqlite+aiosqlite:///./data/agent_pm.db", alias="DATABASE_URL")
     database_echo: bool = Field(False, alias="DATABASE_ECHO")
     redis_url: str = Field("redis://localhost:6379", alias="REDIS_URL")

@@ -320,12 +320,15 @@ async def get_task_queue() -> TaskQueue:
                 async def _worker(self, worker_id: int):
                     logger.info("Redis worker %d started", worker_id)
                     recent_failures: dict[str, list[datetime]] = {}
+                    auto_requeue_counts: dict[str, int] = {}
+                    last_alert_sent: dict[str, datetime] = {}
 
                     while self.running:
                         auto_errors = set(settings.task_queue_auto_requeue_errors)
                         alert_threshold = settings.task_queue_alert_threshold
                         alert_window = timedelta(minutes=settings.task_queue_alert_window_minutes)
                         alert_channel = settings.task_queue_alert_channel or settings.slack_status_channel
+                        cooldown = timedelta(minutes=settings.task_queue_alert_cooldown_minutes)
 
                         def _should_auto_requeue(err_type: str | None) -> bool:
                             if not err_type:
@@ -351,6 +354,10 @@ async def get_task_queue() -> TaskQueue:
                                     "Slack alert skipped (dry run): %s", error_type
                                 )
                                 return
+                            now = utc_now()
+                            last_sent = last_alert_sent.get(error_type)
+                            if last_sent and now - last_sent < cooldown:
+                                return
                             body = (
                                 f":rotating_light: Dead-letter threshold exceeded\n"
                                 f"Queue: `{self.queue_name}`\n"
@@ -360,6 +367,7 @@ async def get_task_queue() -> TaskQueue:
                             try:
                                 await slack_client.post_digest(body, alert_channel)
                                 dead_letter_alert_total.labels(queue=self.queue_name, error_type=error_type).inc()
+                                last_alert_sent[error_type] = now
                             except Exception as exc:  # pragma: no cover - logging
                                 logger.error("Failed to send Slack alert: %s", exc)
 
@@ -437,11 +445,17 @@ async def get_task_queue() -> TaskQueue:
                                 record_task_latency(self.queue_name, (utc_now() - start).total_seconds())
                                 identifier = payload.get("metadata", {}).get("workflow_id") or payload.get("name", "unknown")
                                 if _should_auto_requeue(error_type):
-                                    await self.requeue_dead_letter(
-                                        task_id,
-                                        automatic=True,
-                                        notify=False,
-                                    )
+                                    key = f"{identifier}:{error_type}"
+                                    count = auto_requeue_counts.get(key, 0)
+                                    if count < settings.task_queue_max_auto_requeues:
+                                        auto_payload = await self.requeue_dead_letter(
+                                            task_id,
+                                            automatic=True,
+                                            notify=False,
+                                        )
+                                        auto_requeue_counts[key] = count + 1
+                                        if auto_payload:
+                                            payload = auto_payload
                                 if _record_failure(error_type, identifier):
                                     await _send_alert(error_type, payload)
                                 continue

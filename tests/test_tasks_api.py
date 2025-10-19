@@ -129,7 +129,10 @@ async def test_tasks_admin_endpoints_surface_queue_data(monkeypatch):
                 "/tasks/dead-letter", params={"limit": 5, "offset": 0, "workflow_id": "plan-123"}
             )
             assert dead_resp.status_code == 200
-            assert dead_resp.json()["dead_letter"][0]["task_id"] == "dead-1"
+            payload = dead_resp.json()
+            assert payload["dead_letter"][0]["task_id"] == "dead-1"
+            assert payload["auto_triage"]["auto_requeue_errors"] == settings.task_queue_auto_requeue_errors
+            assert payload["auto_triage"]["alert_threshold"] == settings.task_queue_alert_threshold
             assert stub.limit == 5
             assert stub.workflow_id == "plan-123"
 

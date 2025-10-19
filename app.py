@@ -471,6 +471,13 @@ async def list_dead_letter(
     items, total = await task_queue.list_dead_letters(
         limit=limit, offset=offset, workflow_id=workflow_id, error_type=error_type
     )
+    config = {
+        "auto_requeue_errors": settings.task_queue_auto_requeue_errors,
+        "alert_threshold": settings.task_queue_alert_threshold,
+        "alert_window_minutes": settings.task_queue_alert_window_minutes,
+        "alert_cooldown_minutes": settings.task_queue_alert_cooldown_minutes,
+        "alert_channel": settings.task_queue_alert_channel,
+    }
     return {
         "dead_letter": [
             {
@@ -485,6 +492,7 @@ async def list_dead_letter(
         "total": total,
         "limit": limit,
         "offset": offset,
+        "auto_triage": config,
     }
 
 
