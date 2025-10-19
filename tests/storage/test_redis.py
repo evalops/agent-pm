@@ -12,6 +12,8 @@ class DummyRedis:
         self.results: dict[str, str] = {}
         self.dead: dict[str, str] = {}
         self.heartbeats: dict[str, str] = {}
+        self.audit: list[str] = []
+        self.retry_policies: dict[str, str] = {}
 
     async def rpush(self, key: str, value: str) -> None:
         self.items.append(value)
@@ -29,12 +31,16 @@ class DummyRedis:
             self.dead[field] = value
         elif key.endswith("heartbeats"):
             self.heartbeats[field] = value
+        elif key.endswith("retry_policy"):
+            self.retry_policies[field] = value
         else:
             self.results[field] = value
 
     async def hget(self, key: str, field: str):
         if key.endswith("dead_letter"):
             return self.dead.get(field)
+        if key.endswith("retry_policy"):
+            return self.retry_policies.get(field)
         return self.results.get(field)
 
     async def hgetall(self, key: str):
@@ -42,15 +48,21 @@ class DummyRedis:
             return self.dead
         if key.endswith("heartbeats"):
             return self.heartbeats
+        if key.endswith("retry_policy"):
+            return self.retry_policies
         return self.results
 
     async def hdel(self, key: str, field: str):
         if key.endswith("dead_letter"):
             self.dead.pop(field, None)
+        elif key.endswith("retry_policy"):
+            self.retry_policies.pop(field, None)
 
     async def hlen(self, key: str) -> int:
         if key.endswith("dead_letter"):
             return len(self.dead)
+        if key.endswith("retry_policy"):
+            return len(self.retry_policies)
         return len(self.results)
 
     async def expire(self, key: str, ttl: int):
@@ -59,6 +71,18 @@ class DummyRedis:
     async def delete(self, key: str):
         if key.endswith("dead_letter"):
             self.dead.clear()
+    async def lpush(self, key: str, value: str):
+        if key.endswith("dead_letter:audit"):
+            self.audit.insert(0, value)
+
+    async def ltrim(self, key: str, start: int, stop: int):
+        if key.endswith("dead_letter:audit"):
+            self.audit = self.audit[start : stop + 1]
+
+    async def lrange(self, key: str, start: int, stop: int):
+        if key.endswith("dead_letter:audit"):
+            return self.audit[start : stop + 1]
+        return []
 
 
 @pytest.mark.asyncio
@@ -119,3 +143,15 @@ async def test_dead_letter_and_heartbeat_helpers():
     await redis.write_heartbeat(client, "worker:1", {"status": "ok"}, ttl=60)
     beats = await redis.list_heartbeats(client)
     assert beats["worker:1"]["status"] == "ok"
+
+    await redis.append_dead_letter_audit(client, {"event": "record", "task_id": "abc"}, max_entries=10)
+    audit_entries = await redis.fetch_dead_letter_audit(client, limit=1)
+    assert audit_entries[0]["task_id"] == "abc"
+
+    await redis.set_retry_policy(client, "job", {"timeout": 123, "backoff_base": 2.5})
+    policy = await redis.get_retry_policy(client, "job")
+    assert policy == {"timeout": 123, "backoff_base": 2.5}
+    policies = await redis.list_retry_policies(client)
+    assert "job" in policies
+    await redis.delete_retry_policy(client, "job")
+    assert await redis.get_retry_policy(client, "job") is None

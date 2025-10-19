@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 QUEUE_KEY = "agent_pm:tasks"
 RESULT_KEY = "agent_pm:results"
 DEAD_LETTER_KEY = "agent_pm:dead_letter"
+DEAD_LETTER_AUDIT_KEY = "agent_pm:dead_letter:audit"
+RETRY_POLICY_KEY = "agent_pm:retry_policy"
 HEARTBEAT_KEY = "agent_pm:worker_heartbeats"
 
 
@@ -30,6 +32,14 @@ def _result_key() -> str:
 
 def _dead_letter_key() -> str:
     return DEAD_LETTER_KEY
+
+
+def _dead_letter_audit_key() -> str:
+    return DEAD_LETTER_AUDIT_KEY
+
+
+def _retry_policy_key() -> str:
+    return RETRY_POLICY_KEY
 
 
 def _heartbeat_key() -> str:
@@ -120,6 +130,57 @@ async def count_dead_letters(client: redis.Redis) -> int:
 
 async def clear_dead_letter(client: redis.Redis, task_id: str) -> None:
     await client.hdel(_dead_letter_key(), task_id)
+
+
+async def append_dead_letter_audit(client: redis.Redis, entry: dict[str, Any], *, max_entries: int = 1000) -> None:
+    payload = entry.copy()
+    payload.setdefault("timestamp", datetime.now(UTC).isoformat())
+    await client.lpush(_dead_letter_audit_key(), json.dumps(payload))
+    await client.ltrim(_dead_letter_audit_key(), 0, max_entries - 1)
+
+
+async def fetch_dead_letter_audit(client: redis.Redis, limit: int = 100) -> list[dict[str, Any]]:
+    raw_entries = await client.lrange(_dead_letter_audit_key(), 0, max(0, limit - 1))
+    entries: list[dict[str, Any]] = []
+    for value in raw_entries:
+        try:
+            entries.append(json.loads(value))
+        except json.JSONDecodeError:
+            entries.append({"raw": value})
+    return entries
+
+
+async def set_retry_policy(client: redis.Redis, task_name: str, policy: dict[str, Any]) -> None:
+    if not policy:
+        await client.hdel(_retry_policy_key(), task_name)
+        return
+    await client.hset(_retry_policy_key(), task_name, json.dumps(policy))
+
+
+async def get_retry_policy(client: redis.Redis, task_name: str) -> dict[str, Any] | None:
+    value = await client.hget(_retry_policy_key(), task_name)
+    if not value:
+        return None
+    try:
+        data = json.loads(value)
+    except json.JSONDecodeError:
+        return None
+    return data
+
+
+async def delete_retry_policy(client: redis.Redis, task_name: str) -> None:
+    await client.hdel(_retry_policy_key(), task_name)
+
+
+async def list_retry_policies(client: redis.Redis) -> dict[str, dict[str, Any]]:
+    values = await client.hgetall(_retry_policy_key())
+    policies: dict[str, dict[str, Any]] = {}
+    for name, raw in values.items():
+        try:
+            policies[name] = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+    return policies
 
 
 async def purge_dead_letters(client: redis.Redis, *, older_than: datetime | None = None) -> int:

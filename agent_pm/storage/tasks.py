@@ -25,16 +25,22 @@ from ..observability.metrics import (
 from ..settings import settings
 from ..utils.datetime import utc_now
 from .redis import (
+    append_dead_letter_audit,
     clear_dead_letter,
     count_dead_letters,
+    delete_retry_policy,
     enqueue_task as redis_enqueue_task,
+    fetch_dead_letter_audit,
     fetch_dead_letters,
     get_dead_letter,
     get_redis_client,
+    get_retry_policy,
     list_heartbeats,
+    list_retry_policies,
     pop_task,
     purge_dead_letters,
     record_dead_letter,
+    set_retry_policy,
     set_task_result,
     write_heartbeat,
 )
@@ -217,6 +223,21 @@ class TaskQueue:
     ) -> tuple[list[dict[str, Any]], int]:
         return [], 0
 
+    async def list_dead_letter_audit(self, limit: int = 100) -> list[dict[str, Any]]:
+        return []
+
+    async def get_retry_policy(self, task_name: str) -> dict[str, Any] | None:
+        return None
+
+    async def set_retry_policy(self, task_name: str, policy: dict[str, Any]) -> None:
+        return None
+
+    async def delete_retry_policy(self, task_name: str) -> None:
+        return None
+
+    async def list_retry_policies(self) -> dict[str, dict[str, Any]]:
+        return {}
+
     async def delete_dead_letter(self, task_id: str) -> None:
         return None
 
@@ -314,23 +335,23 @@ async def get_task_queue() -> TaskQueue:
                             await record_dead_letter(self._redis, payload)
                             dead_letter_recorded_total.labels(
                                 queue=self.queue_name,
-                                error_type="TimeoutError",
-                            ).inc()
-                            dead_letter_recorded_total.labels(
-                                queue=self.queue_name,
-                                error_type=payload.get("error_type", payload.get("last_error", "unknown")),
+                                error_type=payload.get("error_type", "MissingCallable"),
                             ).inc()
                             record_task_completion(self.queue_name, TaskStatus.FAILED.value)
                             continue
 
                         retries = payload.get("retry_count", 0)
-                        max_retries = payload.get("max_retries", 3)
+                        base_max_retries = payload.get("max_retries", 3)
+
+                        policy = await get_retry_policy(self._redis, name) or {}
+                        timeout = float(policy.get("timeout", self._task_timeout))
+                        max_retries = int(policy.get("max_retries", base_max_retries))
 
                         start = utc_now()
                         try:
                             result = await asyncio.wait_for(
                                 coro_fn(*payload.get("args", ()), **payload.get("kwargs", {})),
-                                timeout=self._task_timeout,
+                                timeout=timeout,
                             )
                         except TimeoutError:
                             payload.setdefault("metadata", {})
@@ -343,6 +364,10 @@ async def get_task_queue() -> TaskQueue:
                             payload["stack_trace"] = None
                             payload["worker_id"] = worker_id
                             await record_dead_letter(self._redis, payload)
+                            dead_letter_recorded_total.labels(
+                                queue=self.queue_name,
+                                error_type="TimeoutError",
+                            ).inc()
                             record_task_completion(self.queue_name, TaskStatus.FAILED.value)
                             record_task_latency(self.queue_name, (utc_now() - start).total_seconds())
                             continue
@@ -365,7 +390,10 @@ async def get_task_queue() -> TaskQueue:
                                 record_task_latency(self.queue_name, (utc_now() - start).total_seconds())
                                 continue
 
-                            backoff = min(self._backoff_base**retries, self._backoff_max)
+                            backoff = min(
+                                float(policy.get("backoff_base", self._backoff_base)) ** retries,
+                                float(policy.get("backoff_max", self._backoff_max)),
+                            )
                             await asyncio.sleep(backoff)
                             await redis_enqueue_task(self._redis, name, payload)
                             continue
@@ -403,6 +431,21 @@ async def get_task_queue() -> TaskQueue:
                     window = filtered[offset : offset + limit]
                     dead_letter_active_gauge.labels(queue=self.queue_name).set(total_filtered)
                     return window, total_filtered
+
+                async def list_dead_letter_audit(self, limit: int = 100) -> list[dict[str, Any]]:
+                    return await fetch_dead_letter_audit(self._redis, limit)
+
+                async def get_retry_policy(self, task_name: str) -> dict[str, Any] | None:
+                    return await get_retry_policy(self._redis, task_name)
+
+                async def set_retry_policy(self, task_name: str, policy: dict[str, Any]) -> None:
+                    await set_retry_policy(self._redis, task_name, policy)
+
+                async def delete_retry_policy(self, task_name: str) -> None:
+                    await delete_retry_policy(self._redis, task_name)
+
+                async def list_retry_policies(self) -> dict[str, dict[str, Any]]:
+                    return await list_retry_policies(self._redis)
 
                 async def delete_dead_letter(self, task_id: str) -> None:
                     await clear_dead_letter(self._redis, task_id)
