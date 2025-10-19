@@ -21,6 +21,7 @@ dependencies = [
     "prometheus-client",
     "sqlalchemy>=2.0",
     "asyncpg",
+    "aiosqlite",
     "redis[async]>=5.0",
     "rq",
     "opentelemetry-api",
