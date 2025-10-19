@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import redis.asyncio as redis
@@ -73,7 +73,7 @@ async def get_task_result(client: redis.Redis, task_id: str) -> dict[str, Any] |
 async def record_dead_letter(client: redis.Redis, payload: dict[str, Any]) -> None:
     task_id = payload.get("task_id", uuid.uuid4().hex)
     if "recorded_at" not in payload:
-        payload["recorded_at"] = datetime.now(timezone.utc).isoformat()
+        payload["recorded_at"] = datetime.now(UTC).isoformat()
     await client.hset(_dead_letter_key(), task_id, json.dumps(payload))
 
 
@@ -89,11 +89,18 @@ async def get_dead_letter(client: redis.Redis, task_id: str) -> dict[str, Any] |
     return data
 
 
-async def fetch_dead_letters(client: redis.Redis, limit: int = 100) -> list[dict[str, Any]]:
+async def fetch_dead_letters(
+    client: redis.Redis,
+    *,
+    limit: int | None = 100,
+    offset: int = 0,
+    include_total: bool = False,
+) -> tuple[list[dict[str, Any]], int] | list[dict[str, Any]]:
     items = await client.hgetall(_dead_letter_key())
     tasks: list[dict[str, Any]] = []
-    for task_id, value in items.items():
-        if len(tasks) >= limit:
+    entries = list(items.items())
+    for task_id, value in entries[offset:]:
+        if limit is not None and len(tasks) >= limit:
             break
         try:
             data = json.loads(value)
@@ -101,7 +108,14 @@ async def fetch_dead_letters(client: redis.Redis, limit: int = 100) -> list[dict
             tasks.append(data)
         except json.JSONDecodeError:
             tasks.append({"task_id": task_id, "raw": value})
+    total = len(entries)
+    if include_total:
+        return tasks, total
     return tasks
+
+
+async def count_dead_letters(client: redis.Redis) -> int:
+    return await client.hlen(_dead_letter_key())
 
 
 async def clear_dead_letter(client: redis.Redis, task_id: str) -> None:

@@ -96,6 +96,7 @@ async def test_dead_letter_and_heartbeat_helpers():
     payload = {"task_id": "abc", "name": "job", "args": [], "kwargs": {}}
     await redis.record_dead_letter(client, payload)
     records = await redis.fetch_dead_letters(client)
+    assert isinstance(records, list)
     assert records[0]["task_id"] == "abc"
 
     stored = await redis.get_dead_letter(client, "abc")

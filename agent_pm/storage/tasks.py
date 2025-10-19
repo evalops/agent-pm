@@ -4,15 +4,20 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import traceback
 import uuid
 from collections import deque
 from collections.abc import Callable, Coroutine
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any
 
 from ..observability.metrics import (
+    dead_letter_active_gauge,
+    dead_letter_purged_total,
+    dead_letter_recorded_total,
+    dead_letter_requeued_total,
     record_task_completion,
     record_task_enqueued,
     record_task_latency,
@@ -21,6 +26,7 @@ from ..settings import settings
 from ..utils.datetime import utc_now
 from .redis import (
     clear_dead_letter,
+    count_dead_letters,
     enqueue_task as redis_enqueue_task,
     fetch_dead_letters,
     get_dead_letter,
@@ -53,6 +59,7 @@ class Task:
     coro_fn: Callable[..., Coroutine[Any, Any, Any]]
     args: tuple
     kwargs: dict
+    metadata: dict[str, Any] = field(default_factory=dict)
     status: TaskStatus = TaskStatus.PENDING
     created_at: datetime = None  # type: ignore[assignment]
     started_at: datetime | None = None
@@ -104,6 +111,7 @@ class TaskQueue:
         coro_fn: Callable[..., Coroutine[Any, Any, Any]],
         *args: Any,
         max_retries: int = 3,
+        metadata: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> str:
         """Enqueue a task and return task ID."""
@@ -115,6 +123,7 @@ class TaskQueue:
             args=args,
             kwargs=kwargs,
             max_retries=max_retries,
+            metadata=metadata or {},
         )
         async with self._lock:
             self.queue.append(task)
@@ -199,8 +208,14 @@ class TaskQueue:
                 record_task_latency(self.queue_name, (task.completed_at - task.started_at).total_seconds())
                 logger.error("Task permanently failed: %s (id=%s)", task.name, task.task_id)
 
-    async def list_dead_letters(self, limit: int = 100) -> list[dict[str, Any]]:
-        return []
+    async def list_dead_letters(
+        self,
+        limit: int = 100,
+        offset: int = 0,
+        workflow_id: str | None = None,
+        error_type: str | None = None,
+    ) -> tuple[list[dict[str, Any]], int]:
+        return [], 0
 
     async def delete_dead_letter(self, task_id: str) -> None:
         return None
@@ -254,6 +269,7 @@ async def get_task_queue() -> TaskQueue:
                     coro_fn: Callable[..., Coroutine[Any, Any, Any]],
                     *args: Any,
                     max_retries: int = 3,
+                    metadata: dict[str, Any] | None = None,
                     **kwargs: Any,
                 ) -> str:
                     self.register(name, coro_fn)
@@ -264,6 +280,7 @@ async def get_task_queue() -> TaskQueue:
                         "kwargs": kwargs,
                         "max_retries": max_retries,
                         "enqueued_at": utc_now().isoformat(),
+                        "metadata": metadata or {},
                     }
                     await redis_enqueue_task(self._redis, name, payload)
                     record_task_enqueued(self.queue_name)
@@ -289,10 +306,20 @@ async def get_task_queue() -> TaskQueue:
                         coro_fn = self._registry.get(name)
                         if coro_fn is None:
                             logger.error("No registered task callable for %s", name)
-                            await record_dead_letter(
-                                self._redis,
-                                {**payload, "error": "missing_callable", "worker_id": worker_id},
-                            )
+                            payload.setdefault("metadata", {})
+                            payload["error_type"] = "MissingCallable"
+                            payload["error_message"] = f"Task callable not registered: {name}"
+                            payload["stack_trace"] = None
+                            payload["worker_id"] = worker_id
+                            await record_dead_letter(self._redis, payload)
+                            dead_letter_recorded_total.labels(
+                                queue=self.queue_name,
+                                error_type="TimeoutError",
+                            ).inc()
+                            dead_letter_recorded_total.labels(
+                                queue=self.queue_name,
+                                error_type=payload.get("error_type", payload.get("last_error", "unknown")),
+                            ).inc()
                             record_task_completion(self.queue_name, TaskStatus.FAILED.value)
                             continue
 
@@ -305,21 +332,35 @@ async def get_task_queue() -> TaskQueue:
                                 coro_fn(*payload.get("args", ()), **payload.get("kwargs", {})),
                                 timeout=self._task_timeout,
                             )
-                        except asyncio.TimeoutError:
+                        except TimeoutError:
+                            payload.setdefault("metadata", {})
                             payload["retry_count"] = retries + 1
                             payload["last_error"] = "timeout"
+                            payload["error_type"] = "TimeoutError"
+                            payload["error_message"] = (
+                                f"Task execution exceeded timeout of {self._task_timeout} seconds"
+                            )
+                            payload["stack_trace"] = None
                             payload["worker_id"] = worker_id
                             await record_dead_letter(self._redis, payload)
                             record_task_completion(self.queue_name, TaskStatus.FAILED.value)
                             record_task_latency(self.queue_name, (utc_now() - start).total_seconds())
                             continue
                         except Exception as exc:  # pylint: disable=broad-except
+                            payload.setdefault("metadata", {})
                             retries += 1
                             payload["retry_count"] = retries
                             payload["last_error"] = str(exc)
                             if retries >= max_retries:
+                                payload["error_type"] = exc.__class__.__name__
+                                payload["error_message"] = str(exc)
+                                payload["stack_trace"] = traceback.format_exc()
                                 payload["worker_id"] = worker_id
                                 await record_dead_letter(self._redis, payload)
+                                dead_letter_recorded_total.labels(
+                                    queue=self.queue_name,
+                                    error_type=payload.get("error_type", "unknown"),
+                                ).inc()
                                 record_task_completion(self.queue_name, TaskStatus.FAILED.value)
                                 record_task_latency(self.queue_name, (utc_now() - start).total_seconds())
                                 continue
@@ -343,8 +384,25 @@ async def get_task_queue() -> TaskQueue:
 
                     logger.info("Redis worker %d stopped", worker_id)
 
-                async def list_dead_letters(self, limit: int = 100) -> list[dict[str, Any]]:
-                    return await fetch_dead_letters(self._redis, limit)
+                async def list_dead_letters(
+                    self,
+                    limit: int = 100,
+                    offset: int = 0,
+                    workflow_id: str | None = None,
+                    error_type: str | None = None,
+                ) -> tuple[list[dict[str, Any]], int]:
+                    items, total_raw = await fetch_dead_letters(self._redis, limit=None, include_total=True)
+                    filtered: list[dict[str, Any]] = []
+                    for item in items:
+                        if workflow_id and item.get("metadata", {}).get("workflow_id") != workflow_id:
+                            continue
+                        if error_type and item.get("error_type") != error_type:
+                            continue
+                        filtered.append(item)
+                    total_filtered = len(filtered)
+                    window = filtered[offset : offset + limit]
+                    dead_letter_active_gauge.labels(queue=self.queue_name).set(total_filtered)
+                    return window, total_filtered
 
                 async def delete_dead_letter(self, task_id: str) -> None:
                     await clear_dead_letter(self._redis, task_id)
@@ -363,6 +421,9 @@ async def get_task_queue() -> TaskQueue:
                     payload["requeued_at"] = utc_now().isoformat()
                     await redis_enqueue_task(self._redis, payload.get("name", "unknown"), payload)
                     record_task_enqueued(self.queue_name)
+                    dead_letter_requeued_total.labels(
+                        queue=self.queue_name, error_type=payload.get("error_type", "unknown")
+                    ).inc()
                     logger.info("Dead-letter task requeued: %s", task_id)
                     return payload
 
@@ -371,9 +432,15 @@ async def get_task_queue() -> TaskQueue:
 
                 async def purge_dead_letters(self, *, older_than: timedelta | None = None) -> int:
                     if older_than is None:
-                        return await purge_dead_letters(self._redis)
+                        deleted = await purge_dead_letters(self._redis)
+                        dead_letter_purged_total.labels(queue=self.queue_name, mode="all").inc(deleted)
+                        dead_letter_active_gauge.labels(queue=self.queue_name).set(await count_dead_letters(self._redis))
+                        return deleted
                     cutoff = utc_now() - older_than
-                    return await purge_dead_letters(self._redis, older_than=cutoff)
+                    deleted = await purge_dead_letters(self._redis, older_than=cutoff)
+                    dead_letter_purged_total.labels(queue=self.queue_name, mode="age_filter").inc(deleted)
+                    dead_letter_active_gauge.labels(queue=self.queue_name).set(await count_dead_letters(self._redis))
+                    return deleted
 
             _task_queue = RedisTaskQueue(max_workers=settings.task_queue_workers)
         else:

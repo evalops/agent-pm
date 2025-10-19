@@ -456,11 +456,33 @@ async def list_tasks(status: str | None = None, limit: int = 50, _admin_key: Adm
 
 
 @app.get("/tasks/dead-letter")
-async def list_dead_letter(limit: int = 50, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
+async def list_dead_letter(
+    limit: int = 50,
+    offset: int = 0,
+    workflow_id: str | None = None,
+    error_type: str | None = None,
+    _admin_key: AdminKeyDep = None,
+) -> dict[str, Any]:
     if not _task_queue:
         raise HTTPException(status_code=503, detail="Task queue not initialized")
-    items = await _task_queue.list_dead_letters(limit)
-    return {"dead_letter": items, "total": len(items)}
+    items, total = await _task_queue.list_dead_letters(
+        limit=limit, offset=offset, workflow_id=workflow_id, error_type=error_type
+    )
+    return {
+        "dead_letter": [
+            {
+                **item,
+                "metadata": item.get("metadata", {}),
+                "error_type": item.get("error_type"),
+                "error_message": item.get("error_message"),
+                "stack_trace": item.get("stack_trace"),
+            }
+            for item in items
+        ],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 @app.get("/tasks/dead-letter/{task_id}")

@@ -5,7 +5,32 @@ from __future__ import annotations
 from contextlib import contextmanager
 from time import perf_counter
 
-from prometheus_client import Counter, Histogram, Summary, generate_latest
+from prometheus_client import Counter, Gauge, Histogram, Summary, generate_latest
+
+
+dead_letter_recorded_total = Counter(
+    "task_dead_letter_recorded_total",
+    "Dead-letter entries recorded",
+    labelnames=("queue", "error_type"),
+)
+
+dead_letter_requeued_total = Counter(
+    "task_dead_letter_requeued_total",
+    "Dead-letter entries requeued",
+    labelnames=("queue", "error_type"),
+)
+
+dead_letter_purged_total = Counter(
+    "task_dead_letter_purged_total",
+    "Dead-letter entries purged",
+    labelnames=("queue", "mode"),
+)
+
+dead_letter_active_gauge = Gauge(
+    "task_dead_letter_active",
+    "Current count of dead-letter entries",
+    labelnames=("queue",),
+)
 
 planner_requests_total = Counter(
     "planner_requests_total",
@@ -210,4 +235,8 @@ __all__ = [
     "record_task_completion",
     "record_task_latency",
     "latest_metrics",
+    "dead_letter_recorded_total",
+    "dead_letter_requeued_total",
+    "dead_letter_purged_total",
+    "dead_letter_active_gauge",
 ]
