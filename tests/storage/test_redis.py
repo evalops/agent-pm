@@ -9,6 +9,8 @@ class DummyRedis:
     def __init__(self):
         self.items: list[str] = []
         self.results: dict[str, str] = {}
+        self.dead: dict[str, str] = {}
+        self.heartbeats: dict[str, str] = {}
 
     async def rpush(self, key: str, value: str) -> None:
         self.items.append(value)
@@ -19,10 +21,31 @@ class DummyRedis:
         return self.items.pop(0)
 
     async def hset(self, key: str, field: str, value: str) -> None:
-        self.results[field] = value
+        if key.endswith("dead_letter"):
+            self.dead[field] = value
+        elif key.endswith("heartbeats"):
+            self.heartbeats[field] = value
+        else:
+            self.results[field] = value
 
     async def hget(self, key: str, field: str):
+        if key.endswith("dead_letter"):
+            return self.dead.get(field)
         return self.results.get(field)
+
+    async def hgetall(self, key: str):
+        if key.endswith("dead_letter"):
+            return self.dead
+        if key.endswith("heartbeats"):
+            return self.heartbeats
+        return self.results
+
+    async def hdel(self, key: str, field: str):
+        if key.endswith("dead_letter"):
+            self.dead.pop(field, None)
+
+    async def expire(self, key: str, ttl: int):
+        return None
 
 
 @pytest.mark.asyncio
@@ -52,3 +75,19 @@ async def test_pop_and_result_roundtrip():
     await redis.set_task_result(client, task_id, {"status": "done"})
     result = await redis.get_task_result(client, task_id)
     assert result == {"status": "done"}
+
+
+@pytest.mark.asyncio
+async def test_dead_letter_and_heartbeat_helpers():
+    client = DummyRedis()
+    payload = {"task_id": "abc", "name": "job", "args": [], "kwargs": {}}
+    await redis.record_dead_letter(client, payload)
+    records = await redis.fetch_dead_letters(client)
+    assert records[0]["task_id"] == "abc"
+
+    await redis.clear_dead_letter(client, "abc")
+    assert await redis.fetch_dead_letters(client) == []
+
+    await redis.write_heartbeat(client, "worker:1", {"status": "ok"}, ttl=60)
+    beats = await redis.list_heartbeats(client)
+    assert beats["worker:1"]["status"] == "ok"

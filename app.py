@@ -41,7 +41,10 @@ from agent_pm.models import (
 )
 from agent_pm.observability.export import schedule_trace_export
 from agent_pm.observability.logging import configure_logging
-from agent_pm.observability.metrics import latest_metrics, record_alignment_export
+from agent_pm.observability.metrics import (
+    latest_metrics,
+    record_alignment_export,
+)
 from agent_pm.observability.structured import (
     configure_structured_logging,
     get_correlation_id,
@@ -86,14 +89,13 @@ class FollowupUpdate(BaseModel):
 async def startup_event():
     global _task_queue
     _task_queue = await get_task_queue()
-    if settings.task_queue_backend == "memory":
-        await _task_queue.start()
+    await _task_queue.start()
     logger.info("Agent PM service started")
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    if settings.task_queue_backend == "memory" and _task_queue:
+    if _task_queue:
         await _task_queue.stop()
     logger.info("Agent PM service stopped")
 
@@ -471,6 +473,29 @@ async def list_tasks(status: str | None = None, limit: int = 50, _admin_key: Adm
         ],
         "total": len(tasks),
     }
+
+
+@app.get("/tasks/dead-letter")
+async def list_dead_letter(limit: int = 50, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
+    if not _task_queue:
+        raise HTTPException(status_code=503, detail="Task queue not initialized")
+    items = await _task_queue.list_dead_letters(limit)
+    return {"dead_letter": items, "total": len(items)}
+
+
+@app.delete("/tasks/dead-letter/{task_id}")
+async def delete_dead_letter(task_id: str, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
+    if not _task_queue:
+        raise HTTPException(status_code=503, detail="Task queue not initialized")
+    await _task_queue.delete_dead_letter(task_id)
+    return {"task_id": task_id, "status": "deleted"}
+
+
+@app.get("/tasks/workers")
+async def worker_status(_admin_key: AdminKeyDep = None) -> dict[str, Any]:
+    if not _task_queue:
+        raise HTTPException(status_code=503, detail="Task queue not initialized")
+    return {"workers": await _task_queue.worker_heartbeats()}
 
 
 @app.post("/prd/{plan_id}/versions")

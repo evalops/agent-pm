@@ -71,6 +71,11 @@ class Settings(BaseSettings):
     log_format: str = Field("json", alias="LOG_FORMAT")  # json or text
     task_queue_workers: int = Field(5, alias="TASK_QUEUE_WORKERS")
     task_queue_backend: Literal["memory", "redis"] = Field("memory", alias="TASK_QUEUE_BACKEND")
+    task_queue_poll_interval: float = Field(0.2, alias="TASK_QUEUE_POLL_INTERVAL")
+    task_queue_task_timeout: int = Field(300, alias="TASK_QUEUE_TASK_TIMEOUT")
+    task_queue_retry_backoff_base: float = Field(2.0, alias="TASK_QUEUE_RETRY_BACKOFF_BASE")
+    task_queue_retry_backoff_max: float = Field(60.0, alias="TASK_QUEUE_RETRY_BACKOFF_MAX")
+    task_queue_worker_heartbeat_ttl: int = Field(60, alias="TASK_QUEUE_WORKER_HEARTBEAT_TTL")
     database_url: str | None = Field("sqlite+aiosqlite:///./data/agent_pm.db", alias="DATABASE_URL")
     database_echo: bool = Field(False, alias="DATABASE_ECHO")
     redis_url: str = Field("redis://localhost:6379", alias="REDIS_URL")

@@ -65,6 +65,25 @@ alignment_feedback_total = Counter(
     labelnames=("source",),
 )
 
+task_queue_enqueued_total = Counter(
+    "task_queue_enqueued_total",
+    "Tasks enqueued to background queue",
+    labelnames=("queue",),
+)
+
+task_queue_completed_total = Counter(
+    "task_queue_completed_total",
+    "Tasks completed grouped by status",
+    labelnames=("queue", "status"),
+)
+
+task_queue_latency_seconds = Histogram(
+    "task_queue_latency_seconds",
+    "Task execution latency in seconds",
+    labelnames=("queue",),
+    buckets=(0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60),
+)
+
 plugin_hook_invocations_total = Counter(
     "plugin_hook_invocations_total",
     "Plugin hook invocation counts",
@@ -158,6 +177,18 @@ def record_client_call(client: str):
         client_latency_seconds.labels(client=client).observe(perf_counter() - start)
 
 
+def record_task_enqueued(queue: str) -> None:
+    task_queue_enqueued_total.labels(queue=queue).inc()
+
+
+def record_task_completion(queue: str, status: str) -> None:
+    task_queue_completed_total.labels(queue=queue, status=status).inc()
+
+
+def record_task_latency(queue: str, duration: float) -> None:
+    task_queue_latency_seconds.labels(queue=queue).observe(duration)
+
+
 def latest_metrics() -> bytes:
     return generate_latest()
 
@@ -175,5 +206,8 @@ __all__ = [
     "record_plugin_hook_invocation",
     "record_plugin_hook_failure",
     "record_client_call",
+    "record_task_enqueued",
+    "record_task_completion",
+    "record_task_latency",
     "latest_metrics",
 ]

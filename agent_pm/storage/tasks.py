@@ -12,10 +12,24 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
+from ..observability.metrics import (
+    record_task_completion,
+    record_task_enqueued,
+    record_task_latency,
+)
 from ..settings import settings
 from ..utils.datetime import utc_now
-from .redis import enqueue_task as redis_enqueue_task
-from .redis import get_redis_client
+from .redis import (
+    clear_dead_letter,
+    enqueue_task as redis_enqueue_task,
+    fetch_dead_letters,
+    get_redis_client,
+    list_heartbeats,
+    pop_task,
+    record_dead_letter,
+    set_task_result,
+    write_heartbeat,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +75,7 @@ class TaskQueue:
         self.workers: list[asyncio.Task[None]] = []
         self.running = False
         self._lock = asyncio.Lock()
+        self.queue_name = "memory"
 
     async def start(self):
         """Start background workers."""
@@ -102,6 +117,7 @@ class TaskQueue:
         async with self._lock:
             self.queue.append(task)
             self.tasks[task_id] = task
+        record_task_enqueued(self.queue_name)
         logger.info("Task enqueued: %s (id=%s)", name, task_id)
         return task_id
 
@@ -153,6 +169,8 @@ class TaskQueue:
             task.status = TaskStatus.COMPLETED
             task.result = result
             task.completed_at = utc_now()
+            record_task_completion(self.queue_name, task.status.value)
+            record_task_latency(self.queue_name, (task.completed_at - task.started_at).total_seconds())
             logger.info("Task completed: %s (id=%s)", task.name, task.task_id)
         except Exception as exc:
             task.error = str(exc)
@@ -175,7 +193,18 @@ class TaskQueue:
             else:
                 task.status = TaskStatus.FAILED
                 task.completed_at = utc_now()
+                record_task_completion(self.queue_name, task.status.value)
+                record_task_latency(self.queue_name, (task.completed_at - task.started_at).total_seconds())
                 logger.error("Task permanently failed: %s (id=%s)", task.name, task.task_id)
+
+    async def list_dead_letters(self, limit: int = 100) -> list[dict[str, Any]]:
+        return []
+
+    async def delete_dead_letter(self, task_id: str) -> None:
+        return None
+
+    async def worker_heartbeats(self) -> dict[str, Any]:
+        return {}
 
 
 # Global task queue instance
@@ -191,6 +220,20 @@ async def get_task_queue() -> TaskQueue:
             client = await get_redis_client()
 
             class RedisTaskQueue(TaskQueue):
+                def __init__(self, max_workers: int = 5):
+                    super().__init__(max_workers=max_workers)
+                    self.queue_name = "redis"
+                    self._redis = client
+                    self._registry: dict[str, Callable[..., Coroutine[Any, Any, Any]]] = {}
+                    self._poll_interval = settings.task_queue_poll_interval
+                    self._task_timeout = settings.task_queue_task_timeout
+                    self._backoff_base = settings.task_queue_retry_backoff_base
+                    self._backoff_max = settings.task_queue_retry_backoff_max
+                    self._heartbeat_ttl = settings.task_queue_worker_heartbeat_ttl
+
+                def register(self, name: str, coro_fn: Callable[..., Coroutine[Any, Any, Any]]) -> None:
+                    self._registry[name] = coro_fn
+
                 async def enqueue(  # type: ignore[override]
                     self,
                     name: str,
@@ -199,14 +242,101 @@ async def get_task_queue() -> TaskQueue:
                     max_retries: int = 3,
                     **kwargs: Any,
                 ) -> str:
+                    self.register(name, coro_fn)
                     payload = {
                         "task_id": uuid.uuid4().hex,
                         "name": name,
                         "args": args,
                         "kwargs": kwargs,
                         "max_retries": max_retries,
+                        "enqueued_at": utc_now().isoformat(),
                     }
-                    return await redis_enqueue_task(client, name, payload)
+                    await redis_enqueue_task(self._redis, name, payload)
+                    record_task_enqueued(self.queue_name)
+                    logger.info("Redis task enqueued: %s (id=%s)", name, payload["task_id"])
+                    return payload["task_id"]
+
+                async def pop(self) -> dict[str, Any] | None:
+                    payload = await pop_task(self._redis)
+                    if not payload:
+                        return None
+                    return payload
+
+                async def _worker(self, worker_id: int):
+                    logger.info("Redis worker %d started", worker_id)
+                    while self.running:
+                        payload = await self.pop()
+                        if not payload:
+                            await asyncio.sleep(self._poll_interval)
+                            continue
+
+                        task_id = payload.get("task_id", "unknown")
+                        name = payload.get("name")
+                        coro_fn = self._registry.get(name)
+                        if coro_fn is None:
+                            logger.error("No registered task callable for %s", name)
+                            await record_dead_letter(
+                                self._redis,
+                                {**payload, "error": "missing_callable", "worker_id": worker_id},
+                            )
+                            record_task_completion(self.queue_name, TaskStatus.FAILED.value)
+                            continue
+
+                        retries = payload.get("retry_count", 0)
+                        max_retries = payload.get("max_retries", 3)
+
+                        start = utc_now()
+                        try:
+                            result = await asyncio.wait_for(
+                                coro_fn(*payload.get("args", ()), **payload.get("kwargs", {})),
+                                timeout=self._task_timeout,
+                            )
+                        except asyncio.TimeoutError:
+                            payload["retry_count"] = retries + 1
+                            payload["last_error"] = "timeout"
+                            payload["worker_id"] = worker_id
+                            await record_dead_letter(self._redis, payload)
+                            record_task_completion(self.queue_name, TaskStatus.FAILED.value)
+                            record_task_latency(self.queue_name, (utc_now() - start).total_seconds())
+                            continue
+                        except Exception as exc:  # pylint: disable=broad-except
+                            retries += 1
+                            payload["retry_count"] = retries
+                            payload["last_error"] = str(exc)
+                            if retries >= max_retries:
+                                payload["worker_id"] = worker_id
+                                await record_dead_letter(self._redis, payload)
+                                record_task_completion(self.queue_name, TaskStatus.FAILED.value)
+                                record_task_latency(self.queue_name, (utc_now() - start).total_seconds())
+                                continue
+
+                            backoff = min(self._backoff_base**retries, self._backoff_max)
+                            await asyncio.sleep(backoff)
+                            await redis_enqueue_task(self._redis, name, payload)
+                            continue
+
+                        await set_task_result(self._redis, task_id, {"status": "completed", "result": result})
+                        record_task_completion(self.queue_name, TaskStatus.COMPLETED.value)
+                        record_task_latency(self.queue_name, (utc_now() - start).total_seconds())
+
+                        heartbeat_payload = {
+                            "worker_id": worker_id,
+                            "task_id": task_id,
+                            "name": name,
+                            "completed_at": utc_now().isoformat(),
+                        }
+                        await write_heartbeat(self._redis, f"worker:{worker_id}", heartbeat_payload, self._heartbeat_ttl)
+
+                    logger.info("Redis worker %d stopped", worker_id)
+
+                async def list_dead_letters(self, limit: int = 100) -> list[dict[str, Any]]:
+                    return await fetch_dead_letters(self._redis, limit)
+
+                async def delete_dead_letter(self, task_id: str) -> None:
+                    await clear_dead_letter(self._redis, task_id)
+
+                async def worker_heartbeats(self) -> dict[str, dict[str, Any]]:
+                    return await list_heartbeats(self._redis)
 
             _task_queue = RedisTaskQueue(max_workers=settings.task_queue_workers)
         else:
