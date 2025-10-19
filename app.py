@@ -432,26 +432,6 @@ async def metrics() -> PlainTextResponse:
     return PlainTextResponse(content, media_type="text/plain; version=0.0.4")
 
 
-@app.get("/tasks/{task_id}")
-async def get_task(task_id: str, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
-    """Get task status by ID."""
-    if not _task_queue:
-        raise HTTPException(status_code=503, detail="Task queue not initialized")
-    task = await _task_queue.get_task(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return {
-        "task_id": task.task_id,
-        "name": task.name,
-        "status": task.status.value,
-        "created_at": task.created_at.isoformat(),
-        "started_at": task.started_at.isoformat() if task.started_at else None,
-        "completed_at": task.completed_at.isoformat() if task.completed_at else None,
-        "retry_count": task.retry_count,
-        "error": task.error,
-    }
-
-
 @app.get("/tasks")
 async def list_tasks(status: str | None = None, limit: int = 50, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
     """List all tasks with optional status filter."""
@@ -496,6 +476,26 @@ async def worker_status(_admin_key: AdminKeyDep = None) -> dict[str, Any]:
     if not _task_queue:
         raise HTTPException(status_code=503, detail="Task queue not initialized")
     return {"workers": await _task_queue.worker_heartbeats()}
+
+
+@app.get("/tasks/{task_id}")
+async def get_task(task_id: str, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
+    """Get task status by ID."""
+    if not _task_queue:
+        raise HTTPException(status_code=503, detail="Task queue not initialized")
+    task = await _task_queue.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return {
+        "task_id": task.task_id,
+        "name": task.name,
+        "status": task.status.value,
+        "created_at": task.created_at.isoformat(),
+        "started_at": task.started_at.isoformat() if task.started_at else None,
+        "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+        "retry_count": task.retry_count,
+        "error": task.error,
+    }
 
 
 @app.post("/prd/{plan_id}/versions")
