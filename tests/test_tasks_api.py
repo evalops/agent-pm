@@ -37,6 +37,10 @@ async def test_tasks_admin_endpoints_with_memory_backend(monkeypatch):
         worker_resp = await client.get("/tasks/workers")
         assert worker_resp.status_code == 200
         assert worker_resp.json() == {"workers": {}}
+
+        health_resp = await client.get("/tasks/health")
+        assert health_resp.status_code == 200
+        assert "queue" in health_resp.json()
         await client.cleanup()
     finally:
         app.dependency_overrides.clear()

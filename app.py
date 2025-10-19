@@ -41,6 +41,7 @@ from agent_pm.models import (
     SlackDigest,
     TicketPlan,
 )
+from agent_pm.observability.dashboard import gather_queue_health
 from agent_pm.observability.export import schedule_trace_export
 from agent_pm.observability.logging import configure_logging
 from agent_pm.observability.metrics import (
@@ -103,6 +104,16 @@ class FollowupUpdate(BaseModel):
 
 
 app = lifespan_app
+
+
+@app.get("/tasks/health", dependencies=[Depends(enforce_rate_limit)])
+async def task_queue_health(_admin_key: AdminKeyDep = None) -> dict[str, Any]:
+    data = await gather_queue_health()
+    return {
+        "queue": data.queue_name,
+        "dead_letters": data.dead_letters,
+        "auto_triage_enabled": data.auto_triage_enabled,
+    }
 
 
 async def ensure_project_allowed(plan: TicketPlan) -> TicketPlan:
