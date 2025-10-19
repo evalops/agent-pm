@@ -13,13 +13,11 @@ from typing import Any
 
 from sqlalchemy import select
 
-from ..storage.database import AlignmentEvent, get_session_factory
 from ..observability.metrics import record_alignment_followup
 from ..plugins import plugin_registry
 from ..settings import settings
+from ..storage.database import AlignmentEvent, get_session_factory
 from ..utils.datetime import utc_now, utc_now_isoformat
-
-
 from .stream import broadcast_alignment_event
 
 

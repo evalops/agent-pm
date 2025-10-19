@@ -10,8 +10,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ..api.auth import AdminKeyDep, APIKeyDep
-from ..observability.metrics import record_feedback_submission
 from ..api.rate_limit import enforce_rate_limit
+from ..observability.metrics import record_feedback_submission
 from ..settings import settings
 from ..utils.datetime import utc_now_isoformat
 from .base import PluginBase

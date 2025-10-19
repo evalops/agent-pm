@@ -14,7 +14,8 @@ from typing import Any
 
 from ..settings import settings
 from ..utils.datetime import utc_now
-from .redis import enqueue_task as redis_enqueue_task, get_redis_client
+from .redis import enqueue_task as redis_enqueue_task
+from .redis import get_redis_client
 
 logger = logging.getLogger(__name__)
 

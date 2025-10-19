@@ -9,9 +9,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from .dashboard import flatten_alignment_records
 from ..observability.metrics import record_alignment_export
 from ..plugins import plugin_registry
+from .dashboard import flatten_alignment_records
 
 try:
     import boto3  # type: ignore

@@ -1,16 +1,13 @@
+from collections.abc import Mapping
 from logging.config import fileConfig
-from typing import Mapping
-
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
-from sqlalchemy.engine import Connection
-
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
-
-from agent_pm.storage.database import Base
-from agent_pm.settings import settings
 
 from alembic import context
+from sqlalchemy import engine_from_config, pool
+from sqlalchemy.engine import Connection
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+
+from agent_pm.settings import settings
+from agent_pm.storage.database import Base
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

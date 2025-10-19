@@ -6,9 +6,9 @@ import json
 from pathlib import Path
 
 from ..memory import TraceMemory
-from .metrics import record_client_call
 from ..settings import settings
 from ..utils.datetime import utc_now
+from .metrics import record_client_call
 
 
 def _trace_dir() -> Path:
