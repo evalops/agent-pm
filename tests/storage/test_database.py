@@ -30,6 +30,7 @@ async def test_init_db_creates_tables():
 
     engine = database.get_engine()
     async with engine.begin() as conn:
+
         def _inspect_tables(sync_conn):
             from sqlalchemy import inspect
 

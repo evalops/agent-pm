@@ -14,6 +14,7 @@ async def test_verify_api_key_no_key_configured(monkeypatch):
     result = await verify_api_key(None)
     assert result == "anonymous"
 
+
 @pytest.mark.asyncio
 async def test_verify_api_key_invalid():
     """Invalid API key should raise 403."""

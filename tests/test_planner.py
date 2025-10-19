@@ -29,7 +29,9 @@ def capture_alignment_events(monkeypatch):
 
 
 def test_generate_plan_produces_status_digest(monkeypatch):
-    monkeypatch.setattr(planner_module, "openai_client", SimpleNamespace(create_plan=lambda *args, **kwargs: "stubbed plan"))
+    monkeypatch.setattr(
+        planner_module, "openai_client", SimpleNamespace(create_plan=lambda *args, **kwargs: "stubbed plan")
+    )
     monkeypatch.setattr(planner_module.vector_memory, "record_prd", lambda *args, **kwargs: None)
     monkeypatch.setattr(planner_module.vector_memory, "to_dataframe", lambda: pd.DataFrame())
     fired_hooks: list[str] = []
@@ -85,7 +87,9 @@ def test_generate_plan_produces_status_digest(monkeypatch):
 
 
 def test_generate_plan_revision_flow(monkeypatch):
-    monkeypatch.setattr(planner_module, "openai_client", SimpleNamespace(create_plan=lambda *args, **kwargs: "stubbed plan"))
+    monkeypatch.setattr(
+        planner_module, "openai_client", SimpleNamespace(create_plan=lambda *args, **kwargs: "stubbed plan")
+    )
     monkeypatch.setattr(planner_module.vector_memory, "record_prd", lambda *args, **kwargs: None)
     monkeypatch.setattr(planner_module.vector_memory, "to_dataframe", lambda: pd.DataFrame())
 
@@ -578,7 +582,9 @@ def test_notify_alignment_deduplicates_pairs(monkeypatch):
     monkeypatch.setattr(planner_module, "record_alignment_notification", lambda status: statuses.append(status))
 
     first_status, first_meta = planner_module._notify_alignment("Test Initiative", "Note", [{"idea": "Other"}])
-    second_status, second_meta = planner_module._notify_alignment("Test Initiative", "Another note", [{"idea": "Other"}])
+    second_status, second_meta = planner_module._notify_alignment(
+        "Test Initiative", "Another note", [{"idea": "Other"}]
+    )
 
     assert len(calls) == 1
     assert first_status == "success"
