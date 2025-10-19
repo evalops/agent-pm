@@ -85,6 +85,7 @@ class Settings(BaseSettings):
     task_queue_alert_webhook_url: str | None = Field(None, alias="TASK_QUEUE_ALERT_WEBHOOK_URL")
     pagerduty_routing_key: str | None = Field(None, alias="PAGERDUTY_ROUTING_KEY")
     task_queue_playbooks: dict[str, str] = Field(default_factory=dict, alias="TASK_QUEUE_PLAYBOOKS")
+    pagerduty_service_name: str | None = Field(None, alias="PAGERDUTY_SERVICE_NAME")
     database_url: str | None = Field("sqlite+aiosqlite:///./data/agent_pm.db", alias="DATABASE_URL")
     database_echo: bool = Field(False, alias="DATABASE_ECHO")
     redis_url: str = Field("redis://localhost:6379", alias="REDIS_URL")

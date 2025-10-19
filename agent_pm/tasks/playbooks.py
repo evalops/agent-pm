@@ -28,7 +28,7 @@ async def _notify_slack(payload: dict[str, Any], queue: Any, error_type: str) ->
     if settings.dry_run or not slack_client.enabled:
         logger.warning("Remediation Slack notification skipped (dry run)")
         return
-        await slack_client.post_digest(message, channel)
+    await slack_client.post_digest(message, channel)
 
 
 async def _invoke_webhook(payload: dict[str, Any], queue: Any, error_type: str) -> None:
