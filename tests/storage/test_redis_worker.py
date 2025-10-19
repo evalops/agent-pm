@@ -43,6 +43,15 @@ class InMemoryRedis:
     async def expire(self, key: str, ttl: int):
         return None
 
+    async def lpush(self, key: str, value: str) -> None:
+        return None
+
+    async def ltrim(self, key: str, start: int, stop: int) -> None:
+        return None
+
+    async def lrange(self, key: str, start: int, stop: int):
+        return []
+
     async def flushall(self):
         self.items.clear()
         self.hashes.clear()

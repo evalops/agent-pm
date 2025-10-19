@@ -15,6 +15,7 @@ from typing import Any
 
 from ..observability.metrics import (
     dead_letter_active_gauge,
+    dead_letter_auto_requeue_total,
     dead_letter_purged_total,
     dead_letter_recorded_total,
     dead_letter_requeued_total,
@@ -24,6 +25,7 @@ from ..observability.metrics import (
 )
 from ..settings import settings
 from ..utils.datetime import utc_now
+from ..clients.slack_client import slack_client
 from .redis import (
     append_dead_letter_audit,
     clear_dead_letter,
@@ -408,7 +410,9 @@ async def get_task_queue() -> TaskQueue:
                             "name": name,
                             "completed_at": utc_now().isoformat(),
                         }
-                        await write_heartbeat(self._redis, f"worker:{worker_id}", heartbeat_payload, self._heartbeat_ttl)
+                        await write_heartbeat(
+                            self._redis, f"worker:{worker_id}", heartbeat_payload, self._heartbeat_ttl
+                        )
 
                     logger.info("Redis worker %d stopped", worker_id)
 
@@ -453,7 +457,13 @@ async def get_task_queue() -> TaskQueue:
                 async def worker_heartbeats(self) -> dict[str, dict[str, Any]]:
                     return await list_heartbeats(self._redis)
 
-                async def requeue_dead_letter(self, task_id: str) -> dict[str, Any] | None:
+                async def requeue_dead_letter(
+                    self,
+                    task_id: str,
+                    *,
+                    automatic: bool = False,
+                    notify: bool = True,
+                ) -> dict[str, Any] | None:
                     payload = await get_dead_letter(self._redis, task_id)
                     if payload is None:
                         return None
@@ -464,9 +474,8 @@ async def get_task_queue() -> TaskQueue:
                     payload["requeued_at"] = utc_now().isoformat()
                     await redis_enqueue_task(self._redis, payload.get("name", "unknown"), payload)
                     record_task_enqueued(self.queue_name)
-                    dead_letter_requeued_total.labels(
-                        queue=self.queue_name, error_type=payload.get("error_type", "unknown")
-                    ).inc()
+                    metric = dead_letter_auto_requeue_total if automatic else dead_letter_requeued_total
+                    metric.labels(queue=self.queue_name, error_type=payload.get("error_type", "unknown")).inc()
                     logger.info("Dead-letter task requeued: %s", task_id)
                     return payload
 
