@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -86,6 +87,9 @@ class StubQueue:
     async def purge_dead_letters(self) -> int:
         return 1
 
+    async def purge_dead_letters_older_than(self, age):  # pragma: no cover - stubbed for API test
+        return 0
+
 
 @pytest.mark.asyncio
 async def test_tasks_admin_endpoints_surface_queue_data(monkeypatch):
@@ -126,6 +130,9 @@ async def test_tasks_admin_endpoints_surface_queue_data(monkeypatch):
                 purge_resp = await client.delete("/tasks/dead-letter")
                 assert purge_resp.status_code == 200
                 assert purge_resp.json()["deleted"] == 1
+
+                purge_resp_age = await client.delete("/tasks/dead-letter", params={"older_than_minutes": 10})
+                assert purge_resp_age.status_code == 200
             finally:
                 settings.task_queue_backend = original_backend
                 app_module._task_queue = original_queue

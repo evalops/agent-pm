@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 import redis.asyncio as redis
@@ -71,6 +72,8 @@ async def get_task_result(client: redis.Redis, task_id: str) -> dict[str, Any] |
 
 async def record_dead_letter(client: redis.Redis, payload: dict[str, Any]) -> None:
     task_id = payload.get("task_id", uuid.uuid4().hex)
+    if "recorded_at" not in payload:
+        payload["recorded_at"] = datetime.now(timezone.utc).isoformat()
     await client.hset(_dead_letter_key(), task_id, json.dumps(payload))
 
 
@@ -105,12 +108,29 @@ async def clear_dead_letter(client: redis.Redis, task_id: str) -> None:
     await client.hdel(_dead_letter_key(), task_id)
 
 
-async def purge_dead_letters(client: redis.Redis) -> int:
-    count = await client.hlen(_dead_letter_key())
-    if count == 0:
-        return 0
-    await client.delete(_dead_letter_key())
-    return int(count)
+async def purge_dead_letters(client: redis.Redis, *, older_than: datetime | None = None) -> int:
+    if older_than is None:
+        count = await client.hlen(_dead_letter_key())
+        if count == 0:
+            return 0
+        await client.delete(_dead_letter_key())
+        return int(count)
+
+    items = await client.hgetall(_dead_letter_key())
+    removed = 0
+    for task_id, value in items.items():
+        try:
+            data = json.loads(value)
+            recorded = data.get("recorded_at")
+            if not recorded:
+                continue
+            recorded_dt = datetime.fromisoformat(recorded)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if recorded_dt <= older_than:
+            await client.hdel(_dead_letter_key(), task_id)
+            removed += 1
+    return removed
 
 
 async def write_heartbeat(client: redis.Redis, worker_id: str, payload: dict[str, Any], ttl: int) -> None:

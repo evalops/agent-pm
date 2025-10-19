@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -482,10 +482,15 @@ async def delete_dead_letter(task_id: str, _admin_key: AdminKeyDep = None) -> di
 
 
 @app.delete("/tasks/dead-letter")
-async def purge_dead_letters(_admin_key: AdminKeyDep = None) -> dict[str, int]:
+async def purge_dead_letters(
+    older_than_minutes: int | None = None, _admin_key: AdminKeyDep = None
+) -> dict[str, int]:
     if not _task_queue:
         raise HTTPException(status_code=503, detail="Task queue not initialized")
-    deleted = await _task_queue.purge_dead_letters()
+    if older_than_minutes is None:
+        deleted = await _task_queue.purge_dead_letters()
+    else:
+        deleted = await _task_queue.purge_dead_letters_older_than(timedelta(minutes=older_than_minutes))
     return {"deleted": deleted}
 
 

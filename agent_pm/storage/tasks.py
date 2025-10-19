@@ -8,7 +8,7 @@ import uuid
 from collections import deque
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any
 
@@ -217,6 +217,9 @@ class TaskQueue:
     async def purge_dead_letters(self) -> int:
         return 0
 
+    async def purge_dead_letters_older_than(self, age: timedelta) -> int:
+        return 0
+
 
 # Global task queue instance
 _task_queue: TaskQueue | None = None
@@ -366,8 +369,11 @@ async def get_task_queue() -> TaskQueue:
                 async def get_dead_letter(self, task_id: str) -> dict[str, Any] | None:
                     return await get_dead_letter(self._redis, task_id)
 
-                async def purge_dead_letters(self) -> int:
-                    return await purge_dead_letters(self._redis)
+                async def purge_dead_letters(self, *, older_than: timedelta | None = None) -> int:
+                    if older_than is None:
+                        return await purge_dead_letters(self._redis)
+                    cutoff = utc_now() - older_than
+                    return await purge_dead_letters(self._redis, older_than=cutoff)
 
             _task_queue = RedisTaskQueue(max_workers=settings.task_queue_workers)
         else:

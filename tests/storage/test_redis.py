@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -103,10 +104,16 @@ async def test_dead_letter_and_heartbeat_helpers():
     await redis.clear_dead_letter(client, "abc")
     assert await redis.fetch_dead_letters(client) == []
 
-    await redis.record_dead_letter(client, payload)
+    old_payload = {"task_id": "old", "name": "job", "args": [], "kwargs": {}, "recorded_at": "2000-01-01T00:00:00+00:00"}
+    await redis.record_dead_letter(client, old_payload)
     removed = await redis.purge_dead_letters(client)
     assert removed == 1
     assert await redis.fetch_dead_letters(client) == []
+
+    # ensure age-based purging skips fresh entries
+    await redis.record_dead_letter(client, payload)
+    removed = await redis.purge_dead_letters(client, older_than=datetime.now(timezone.utc) - timedelta(minutes=1))
+    assert removed == 0
 
     await redis.write_heartbeat(client, "worker:1", {"status": "ok"}, ttl=60)
     beats = await redis.list_heartbeats(client)
