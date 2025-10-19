@@ -22,6 +22,9 @@ class InMemoryRedis:
             return None
         return self.items.popleft()
 
+    async def llen(self, key: str) -> int:
+        return len(self.items)
+
     async def hset(self, key: str, field: str, value: str) -> None:
         self.hashes.setdefault(key, {})[field] = value
 
@@ -113,3 +116,11 @@ async def test_redis_worker_dead_letters_after_retries_exhausted(redis_queue):
     assert match is not None
     assert match["retry_count"] == 1
     assert match["last_error"] == "boom"
+
+    requeued = await queue.requeue_dead_letter(task_id)
+    assert requeued is not None
+    assert requeued["task_id"] == task_id
+    assert requeued["retry_count"] == 0
+
+    queued_len = await fake.llen("agent_pm:tasks")
+    assert queued_len >= 1

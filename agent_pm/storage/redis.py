@@ -74,6 +74,18 @@ async def record_dead_letter(client: redis.Redis, payload: dict[str, Any]) -> No
     await client.hset(_dead_letter_key(), task_id, json.dumps(payload))
 
 
+async def get_dead_letter(client: redis.Redis, task_id: str) -> dict[str, Any] | None:
+    item = await client.hget(_dead_letter_key(), task_id)
+    if not item:
+        return None
+    try:
+        data = json.loads(item)
+    except json.JSONDecodeError:
+        return None
+    data.setdefault("task_id", task_id)
+    return data
+
+
 async def fetch_dead_letters(client: redis.Redis, limit: int = 100) -> list[dict[str, Any]]:
     items = await client.hgetall(_dead_letter_key())
     tasks: list[dict[str, Any]] = []

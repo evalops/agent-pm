@@ -23,6 +23,7 @@ from .redis import (
     clear_dead_letter,
     enqueue_task as redis_enqueue_task,
     fetch_dead_letters,
+    get_dead_letter,
     get_redis_client,
     list_heartbeats,
     pop_task,
@@ -206,6 +207,9 @@ class TaskQueue:
     async def worker_heartbeats(self) -> dict[str, Any]:
         return {}
 
+    async def requeue_dead_letter(self, task_id: str) -> dict[str, Any] | None:
+        return None
+
 
 # Global task queue instance
 _task_queue: TaskQueue | None = None
@@ -337,6 +341,20 @@ async def get_task_queue() -> TaskQueue:
 
                 async def worker_heartbeats(self) -> dict[str, dict[str, Any]]:
                     return await list_heartbeats(self._redis)
+
+                async def requeue_dead_letter(self, task_id: str) -> dict[str, Any] | None:
+                    payload = await get_dead_letter(self._redis, task_id)
+                    if payload is None:
+                        return None
+
+                    await clear_dead_letter(self._redis, task_id)
+                    payload.pop("last_error", None)
+                    payload["retry_count"] = 0
+                    payload["requeued_at"] = utc_now().isoformat()
+                    await redis_enqueue_task(self._redis, payload.get("name", "unknown"), payload)
+                    record_task_enqueued(self.queue_name)
+                    logger.info("Dead-letter task requeued: %s", task_id)
+                    return payload
 
             _task_queue = RedisTaskQueue(max_workers=settings.task_queue_workers)
         else:

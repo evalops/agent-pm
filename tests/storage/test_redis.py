@@ -20,6 +20,9 @@ class DummyRedis:
             return None
         return self.items.pop(0)
 
+    async def llen(self, key: str) -> int:
+        return len(self.items)
+
     async def hset(self, key: str, field: str, value: str) -> None:
         if key.endswith("dead_letter"):
             self.dead[field] = value
@@ -84,6 +87,9 @@ async def test_dead_letter_and_heartbeat_helpers():
     await redis.record_dead_letter(client, payload)
     records = await redis.fetch_dead_letters(client)
     assert records[0]["task_id"] == "abc"
+
+    stored = await redis.get_dead_letter(client, "abc")
+    assert stored["task_id"] == "abc"
 
     await redis.clear_dead_letter(client, "abc")
     assert await redis.fetch_dead_letters(client) == []

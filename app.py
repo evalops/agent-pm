@@ -498,6 +498,16 @@ async def get_task(task_id: str, _admin_key: AdminKeyDep = None) -> dict[str, An
     }
 
 
+@app.post("/tasks/dead-letter/{task_id}/requeue")
+async def requeue_dead_letter(task_id: str, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
+    if not _task_queue:
+        raise HTTPException(status_code=503, detail="Task queue not initialized")
+    payload = await _task_queue.requeue_dead_letter(task_id)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Dead-letter task not found")
+    return {"task_id": payload.get("task_id", task_id), "status": "requeued"}
+
+
 @app.post("/prd/{plan_id}/versions")
 async def create_prd_version(
     plan_id: str,
