@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 import httpx
 
@@ -50,7 +51,8 @@ async def _invoke_webhook(payload: dict[str, Any], queue: Any, error_type: str) 
 
 async def _log_only(payload: dict[str, Any], queue: Any, error_type: str) -> None:
     logger.warning(
-        "Remediation playbook invoked", extra={"queue": getattr(queue, "queue_name", "unknown"), "error": error_type, "task": payload.get("task_id")}
+        "Remediation playbook invoked",
+        extra={"queue": getattr(queue, "queue_name", "unknown"), "error": error_type, "task": payload.get("task_id")},
     )
 
 

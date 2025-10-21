@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -71,6 +71,7 @@ class DummyRedis:
     async def delete(self, key: str):
         if key.endswith("dead_letter"):
             self.dead.clear()
+
     async def lpush(self, key: str, value: str):
         if key.endswith("dead_letter:audit"):
             self.audit.insert(0, value)
@@ -129,7 +130,13 @@ async def test_dead_letter_and_heartbeat_helpers():
     await redis.clear_dead_letter(client, "abc")
     assert await redis.fetch_dead_letters(client) == []
 
-    old_payload = {"task_id": "old", "name": "job", "args": [], "kwargs": {}, "recorded_at": "2000-01-01T00:00:00+00:00"}
+    old_payload = {
+        "task_id": "old",
+        "name": "job",
+        "args": [],
+        "kwargs": {},
+        "recorded_at": "2000-01-01T00:00:00+00:00",
+    }
     await redis.record_dead_letter(client, old_payload)
     removed = await redis.purge_dead_letters(client)
     assert removed == 1
@@ -137,7 +144,7 @@ async def test_dead_letter_and_heartbeat_helpers():
 
     # ensure age-based purging skips fresh entries
     await redis.record_dead_letter(client, payload)
-    removed = await redis.purge_dead_letters(client, older_than=datetime.now(timezone.utc) - timedelta(minutes=1))
+    removed = await redis.purge_dead_letters(client, older_than=datetime.now(UTC) - timedelta(minutes=1))
     assert removed == 0
 
     await redis.write_heartbeat(client, "worker:1", {"status": "ok"}, ttl=60)

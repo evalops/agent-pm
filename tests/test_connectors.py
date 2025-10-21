@@ -12,7 +12,8 @@ from agent_pm.connectors import (
 )
 from agent_pm.connectors.base import Connector
 from agent_pm.settings import settings
-from agent_pm.storage import database, syncs as sync_storage
+from agent_pm.storage import database
+from agent_pm.storage import syncs as sync_storage
 from agent_pm.tasks.sync import PeriodicSyncManager
 
 

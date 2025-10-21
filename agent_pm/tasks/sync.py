@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Iterable
 
 from agent_pm.connectors import (
     CalendarConnector,
@@ -136,7 +136,9 @@ class PeriodicSyncManager:
                 metadata={"started_at": started_at.isoformat()},
             )
         except Exception:  # pragma: no cover - defensive logging
-            logger.exception("Failed to persist connector sync record", extra={"connector": connector, "status": status})
+            logger.exception(
+                "Failed to persist connector sync record", extra={"connector": connector, "status": status}
+            )
 
 
 def create_default_sync_manager() -> PeriodicSyncManager:

@@ -7,7 +7,6 @@ from time import perf_counter
 
 from prometheus_client import Counter, Gauge, Histogram, Summary, generate_latest
 
-
 dead_letter_recorded_total = Counter(
     "task_dead_letter_recorded_total",
     "Dead-letter entries recorded",

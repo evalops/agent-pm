@@ -53,7 +53,9 @@ class Settings(BaseSettings):
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
 
-    @field_validator("github_repositories", "slack_sync_channels", "gmail_label_filter", "notion_database_ids", mode="before")
+    @field_validator(
+        "github_repositories", "slack_sync_channels", "gmail_label_filter", "notion_database_ids", mode="before"
+    )
     @classmethod
     def _parse_string_lists(cls, value):
         return cls._parse_csv_list(value)

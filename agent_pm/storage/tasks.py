@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any
 
+from ..clients import slack_client
 from ..observability.metrics import (
     dead_letter_active_gauge,
     dead_letter_alert_total,
@@ -25,15 +26,12 @@ from ..observability.metrics import (
     record_task_latency,
 )
 from ..settings import settings
-from ..utils.datetime import utc_now
-from ..clients import pagerduty_client, slack_client
 from ..tasks.playbooks import run_playbook
+from ..utils.datetime import utc_now
 from .redis import (
-    append_dead_letter_audit,
     clear_dead_letter,
     count_dead_letters,
     delete_retry_policy,
-    enqueue_task as redis_enqueue_task,
     fetch_dead_letter_audit,
     fetch_dead_letters,
     get_dead_letter,
@@ -47,6 +45,9 @@ from .redis import (
     set_retry_policy,
     set_task_result,
     write_heartbeat,
+)
+from .redis import (
+    enqueue_task as redis_enqueue_task,
 )
 
 logger = logging.getLogger(__name__)
@@ -332,12 +333,22 @@ async def get_task_queue() -> TaskQueue:
                         alert_channel = settings.task_queue_alert_channel or settings.slack_status_channel
                         cooldown = timedelta(minutes=settings.task_queue_alert_cooldown_minutes)
 
-                        def _should_auto_requeue(err_type: str | None) -> bool:
+                        def _should_auto_requeue(
+                            err_type: str | None,
+                            *,
+                            auto_errors: set[str] = auto_errors,
+                        ) -> bool:
                             if not err_type:
                                 return False
                             return err_type in auto_errors
 
-                        def _record_failure(err_type: str | None, task_identifier: str) -> bool:
+                        def _record_failure(
+                            err_type: str | None,
+                            task_identifier: str,
+                            *,
+                            alert_window: timedelta = alert_window,
+                            alert_threshold: int = alert_threshold,
+                        ) -> bool:
                             if not err_type:
                                 return False
                             now = utc_now()
@@ -348,13 +359,17 @@ async def get_task_queue() -> TaskQueue:
                             recent_failures[key] = [ts for ts in entries if ts >= cutoff]
                             return len(recent_failures[key]) >= alert_threshold
 
-                        async def _send_alert(error_type: str, payload: dict[str, Any]) -> None:
+                        async def _send_alert(
+                            error_type: str,
+                            payload: dict[str, Any],
+                            *,
+                            alert_channel: str | None = alert_channel,
+                            cooldown: timedelta = cooldown,
+                        ) -> None:
                             if not alert_channel:
                                 return
                             if settings.dry_run or not slack_client.enabled:
-                                logger.warning(
-                                    "Slack alert skipped (dry run): %s", error_type
-                                )
+                                logger.warning("Slack alert skipped (dry run): %s", error_type)
                                 return
                             now = utc_now()
                             last_sent = last_alert_sent.get(error_type)
@@ -373,7 +388,10 @@ async def get_task_queue() -> TaskQueue:
                             except Exception as exc:  # pragma: no cover - logging
                                 logger.error("Failed to send Slack alert: %s", exc)
 
-                        async def _apply_adaptive_policy(task_name: str) -> None:
+                        async def _apply_adaptive_policy(
+                            task_name: str,
+                            task_payload: dict[str, Any],
+                        ) -> None:
                             samples = failure_metrics.get(task_name, [])
                             if len(samples) < settings.task_queue_adaptive_min_samples:
                                 return
@@ -381,11 +399,13 @@ async def get_task_queue() -> TaskQueue:
                             if failure_rate < settings.task_queue_adaptive_failure_threshold:
                                 return
                             policy = await get_retry_policy(self._redis, task_name) or {}
-                            policy.setdefault("max_retries", payload.get("max_retries", 3))
+                            policy.setdefault("max_retries", task_payload.get("max_retries", 3))
                             policy.setdefault("timeout", self._task_timeout)
                             policy.setdefault("backoff_base", self._backoff_base)
                             policy.setdefault("backoff_max", self._backoff_max)
-                            policy["max_retries"] = min(int(policy["max_retries"]) + 1, settings.task_queue_max_auto_requeues)
+                            policy["max_retries"] = min(
+                                int(policy["max_retries"]) + 1, settings.task_queue_max_auto_requeues
+                            )
                             policy["timeout"] = float(policy.get("timeout", self._task_timeout)) + 5.0
                             await set_retry_policy(self._redis, task_name, policy)
                             failure_metrics[task_name] = []
@@ -462,7 +482,9 @@ async def get_task_queue() -> TaskQueue:
                                 ).inc()
                                 record_task_completion(self.queue_name, TaskStatus.FAILED.value)
                                 record_task_latency(self.queue_name, (utc_now() - start).total_seconds())
-                                identifier = payload.get("metadata", {}).get("workflow_id") or payload.get("name", "unknown")
+                                identifier = payload.get("metadata", {}).get("workflow_id") or payload.get(
+                                    "name", "unknown"
+                                )
                                 playbook_name = settings.task_queue_playbooks.get(error_type)
                                 if playbook_name:
                                     await run_playbook(playbook_name, payload, self, error_type)
@@ -480,7 +502,7 @@ async def get_task_queue() -> TaskQueue:
                                             payload = auto_payload
                                 metrics = failure_metrics.setdefault(name, [])
                                 metrics.append(False)
-                                await _apply_adaptive_policy(name)
+                                await _apply_adaptive_policy(name, payload)
                                 if _record_failure(error_type, identifier):
                                     await _send_alert(error_type, payload)
                                 continue
@@ -492,13 +514,13 @@ async def get_task_queue() -> TaskQueue:
                             await asyncio.sleep(backoff)
                             metrics = failure_metrics.setdefault(name, [])
                             metrics.append(False)
-                            await _apply_adaptive_policy(name)
+                            await _apply_adaptive_policy(name, payload)
                             await redis_enqueue_task(self._redis, name, payload)
                             continue
 
                         metrics = failure_metrics.setdefault(name, [])
                         metrics.append(True)
-                        await _apply_adaptive_policy(name)
+                        await _apply_adaptive_policy(name, payload)
                         await set_task_result(self._redis, task_id, {"status": "completed", "result": result})
                         record_task_completion(self.queue_name, TaskStatus.COMPLETED.value)
                         record_task_latency(self.queue_name, (utc_now() - start).total_seconds())
@@ -588,7 +610,9 @@ async def get_task_queue() -> TaskQueue:
                     if older_than is None:
                         deleted = await purge_dead_letters(self._redis)
                         dead_letter_purged_total.labels(queue=self.queue_name, mode="all").inc(deleted)
-                        dead_letter_active_gauge.labels(queue=self.queue_name).set(await count_dead_letters(self._redis))
+                        dead_letter_active_gauge.labels(queue=self.queue_name).set(
+                            await count_dead_letters(self._redis)
+                        )
                         return deleted
                     cutoff = utc_now() - older_than
                     deleted = await purge_dead_letters(self._redis, older_than=cutoff)

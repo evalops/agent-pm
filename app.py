@@ -5,10 +5,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Any
-
-from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import PlainTextResponse
@@ -72,6 +71,7 @@ from agent_pm.storage.database import PRDVersion, get_db
 from agent_pm.storage.tasks import TaskStatus, get_task_queue
 from agent_pm.tasks.sync import PeriodicSyncManager, create_default_sync_manager
 from agent_pm.tools import registry
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -543,9 +543,7 @@ async def delete_dead_letter(task_id: str, _admin_key: AdminKeyDep = None) -> di
 
 
 @app.delete("/tasks/dead-letter")
-async def purge_dead_letters(
-    older_than_minutes: int | None = None, _admin_key: AdminKeyDep = None
-) -> dict[str, int]:
+async def purge_dead_letters(older_than_minutes: int | None = None, _admin_key: AdminKeyDep = None) -> dict[str, int]:
     task_queue = await get_task_queue()
     if older_than_minutes is None:
         deleted = await task_queue.purge_dead_letters()

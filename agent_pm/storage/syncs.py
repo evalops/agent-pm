@@ -45,11 +45,7 @@ async def record_sync(
 async def list_recent_syncs(limit: int = 50) -> list[dict[str, Any]]:
     session_factory = get_session_factory()
     async with session_factory() as session:
-        stmt = (
-            select(ConnectorSync)
-            .order_by(desc(ConnectorSync.started_at))
-            .limit(max(limit, 1))
-        )
+        stmt = select(ConnectorSync).order_by(desc(ConnectorSync.started_at)).limit(max(limit, 1))
         try:
             result = await session.execute(stmt)
         except Exception:

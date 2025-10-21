@@ -1,14 +1,15 @@
 import asyncio
-from typing import Any
 from collections import deque
+from contextlib import suppress
+from typing import Any
 
 import pytest
 import pytest_asyncio
 
+import agent_pm.storage.tasks as tasks_module
 from agent_pm.observability.metrics import dead_letter_alert_total, dead_letter_auto_requeue_total
 from agent_pm.settings import settings
 from agent_pm.storage import redis as redis_helpers
-import agent_pm.storage.tasks as tasks_module
 
 
 class InMemoryRedis:
@@ -168,14 +169,10 @@ async def test_auto_triage_requeues_and_alerts(redis_queue, monkeypatch):
 
     monkeypatch.setattr(tasks_module.slack_client, "post_digest", fake_digest)
 
-    try:
+    with suppress(KeyError):
         dead_letter_auto_requeue_total.remove("redis", "RuntimeError")
-    except KeyError:
-        pass
-    try:
+    with suppress(KeyError):
         dead_letter_alert_total.remove("redis", "RuntimeError")
-    except KeyError:
-        pass
 
     state = {"count": 0}
 

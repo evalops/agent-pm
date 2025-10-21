@@ -17,7 +17,9 @@ class PagerDutyClient:
     def enabled(self) -> bool:
         return bool(self.routing_key)
 
-    async def trigger_incident(self, summary: str, source: str = "agent-pm", severity: str = "error", **details: Any) -> dict[str, Any]:
+    async def trigger_incident(
+        self, summary: str, source: str = "agent-pm", severity: str = "error", **details: Any
+    ) -> dict[str, Any]:
         if not self.enabled:
             return {"dry_run": True, "summary": summary, "details": details}
 
