@@ -34,6 +34,29 @@ uv run uvicorn app:app --reload
 
 The service listens on `http://localhost:8000` by default.
 
+## Architecture Overview
+
+- **FastAPI application** powers planner, ticketing, and admin APIs with dependency-injected services and guardrails.
+- **Connector suite** (GitHub, Slack, Gmail, Calendar, Google Drive, Notion) respects `settings.dry_run` and only mutates external systems when explicitly configured.
+- **Background task queue** runs in-memory or via Redis, supporting retries, adaptive auto-requeue, and remediation playbooks.
+- **Persistence layer** defaults to SQLite with optional Postgres; Redis stores queue state, heartbeats, and dead letters when enabled.
+- **Observability stack** ships with structured logging, Prometheus metrics, trace storage/export, and optional PagerDuty/Slack alerts.
+
+## Key Endpoints
+
+| Path | Method | Purpose |
+| --- | --- | --- |
+| `/plan` | POST | Generate a PRD, ticket plan, and trace metadata for a single idea. |
+| `/plan/batch` | POST | Submit multiple ideas for parallel planning. |
+| `/ticket` | POST | Produce Jira-ready stories (dry-run safe). |
+| `/prd/{plan_id}/versions` | GET/POST | List history or commit new PRD revisions. |
+| `/sync/status` | GET | Inspect recent connector sync executions. |
+| `/tasks/dead-letter` | GET/DELETE | Review or purge failed queue jobs. |
+| `/health` / `/health/ready` | GET | Liveness and dependency probes for automation. |
+| `/metrics` | GET | Expose Prometheus counters, histograms, and gauges. |
+
+Additional plugin endpoints are outlined in [`docs/plugins.md`](./docs/plugins.md).
+
 ## Everyday Workflows
 
 Plan a single idea:
@@ -74,6 +97,7 @@ PRD versioning essentials:
 - **Traces:** `/operators/traces` and `/operators/traces/{trace}` browse planner traces; async export via webhook or S3 when configured.
 - **Task queue:** `/tasks` and `/tasks/{id}` monitor background jobs.
 - **Cost tracking:** `agent_pm.cost_tracking` utilities log token and USD usage when responses include usage metadata.
+- **Alerts & playbooks:** Adaptive queue policies can requeue failures, post Slack digests, or trigger PagerDuty incidents through `task_queue_playbooks`.
 
 ## Configuration Reference
 
@@ -86,6 +110,10 @@ PRD versioning essentials:
 | `TRACE_DIR` / `TRACE_EXPORT_*` | Control on-disk traces and optional async exports. |
 | `TASK_QUEUE_WORKERS` | Number of background workers handling queued tasks. |
 | `LOG_FORMAT` | `json` for structured logging or `text` for local debugging. |
+| `TASK_QUEUE_BACKEND` | Choose `memory` (default) or `redis` for production-grade queuing. |
+| `TASK_QUEUE_ALERT_*` | Tune alert thresholds, cooldowns, channels, and auto-requeue behaviour. |
+| `PAGERDUTY_ROUTING_KEY` / `SLACK_*` | Enable incident escalation and Slack digests. |
+| `GITHUB_*`, `GOOGLE_*`, `NOTION_*`, `GMAIL_*` | Provide connector credentials and scopes. |
 
 See `config/agents.yaml`, `config/tools.yaml`, and `.env.example` for additional tunables.
 
@@ -96,9 +124,16 @@ uv run ruff check .        # lint
 uv run ruff format --check .
 uv run pytest              # unit tests with coverage in CI
 docker compose up          # optional Postgres/Redis/worker stack
+uv run mypy agent_pm       # type checking parity with CI
 ```
 
 CI (GitHub Actions) runs lint + tests on every push and pull request.
+
+### Formatting & Linting
+
+- `uv run ruff format .` keeps code formatted.
+- `uv run ruff check .` enforces style, import ordering, and safety rules.
+- `uv run mypy agent_pm` maintains typing guarantees.
 
 ## Plugin Platform
 
@@ -115,6 +150,12 @@ For an in-depth walkthrough (configuration schema, lifecycle hooks, discovery fl
 ## Contributing
 
 Please open an issue or pull request with context, and run lint/tests before submitting.
+
+### Troubleshooting Checklist
+
+- Confirm `.env` secrets before enabling write operations; keep `DRY_RUN=true` locally for safe iteration.
+- Verify `REDIS_URL` and `DATABASE_URL` when running the optional docker-compose stack.
+- Inspect `/metrics`, `/tasks/dead-letter`, and Slack/PagerDuty alerts if connectors begin failing or playbooks trigger repeatedly.
 
 ## License
 
