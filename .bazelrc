@@ -27,6 +27,7 @@ build:remote-gcp-dev --extra_execution_platforms=//bazel/platforms:linux_x86_64
 build:remote-gcp-dev --spawn_strategy=remote
 build:remote-gcp-dev --strategy=Genrule=remote
 build:remote-gcp-dev --strategy=PyCompile=remote
+build:remote-gcp-dev --strategy=CopyFile=local
 build:remote-gcp-dev --jobs=32
 
 build:remote-gcp --config=remote-gcp-dev
