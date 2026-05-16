@@ -1,0 +1,88 @@
+load("@pypi//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
+
+package(default_visibility = ["//visibility:public"])
+
+RUNTIME_DEPS = [
+    requirement("aiosqlite"),
+    requirement("asyncpg"),
+    requirement("fastapi"),
+    requirement("google-auth"),
+    requirement("greenlet"),
+    requirement("httpx"),
+    requirement("jinja2"),
+    requirement("openai"),
+    requirement("openai-agents"),
+    requirement("opentelemetry-api"),
+    requirement("opentelemetry-instrumentation-fastapi"),
+    requirement("opentelemetry-instrumentation-httpx"),
+    requirement("opentelemetry-sdk"),
+    requirement("pandas"),
+    requirement("prometheus-client"),
+    requirement("pydantic"),
+    requirement("pydantic-settings"),
+    requirement("python-dotenv"),
+    requirement("pyyaml"),
+    requirement("redis"),
+    requirement("requests"),
+    requirement("rich"),
+    requirement("rq"),
+    requirement("sqlalchemy"),
+]
+
+TEST_DEPS = [
+    requirement("fakeredis"),
+    requirement("pytest"),
+    requirement("pytest-asyncio"),
+]
+
+SERVICE_DATA = glob([
+    "config/*.yaml",
+    "procedures/*.yaml",
+    "migrations/**",
+]) + [
+    "alembic.ini",
+]
+
+py_library(
+    name = "agent_pm",
+    srcs = glob(["agent_pm/**/*.py"]),
+    data = SERVICE_DATA,
+    imports = ["."],
+    deps = RUNTIME_DEPS,
+)
+
+py_library(
+    name = "app_lib",
+    srcs = ["app.py"],
+    imports = ["."],
+    deps = [
+        ":agent_pm",
+    ] + RUNTIME_DEPS,
+)
+
+py_binary(
+    name = "agent_pm_app",
+    srcs = ["app.py"],
+    imports = ["."],
+    deps = [
+        ":agent_pm",
+    ] + RUNTIME_DEPS,
+)
+
+py_test(
+    name = "pytest",
+    timeout = "moderate",
+    srcs = glob(["tests/**/*.py"]),
+    data = SERVICE_DATA,
+    env = {
+        "DRY_RUN": "true",
+        "OPENAI_API_KEY": "test-key",
+    },
+    imports = ["."],
+    main = "tests/pytest_main.py",
+    deps = [
+        ":agent_pm",
+        ":app_lib",
+    ] + RUNTIME_DEPS + TEST_DEPS,
+)

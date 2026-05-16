@@ -8,6 +8,7 @@ dependencies = [
     "uvicorn[standard]",
     "httpx",
     "google-auth",
+    "greenlet",
     "requests",
     "pydantic>=2",
     "pydantic-settings>=2",
