@@ -1,0 +1,34 @@
+common --enable_bzlmod
+common --announce_rc
+
+build --experimental_convenience_symlinks=ignore
+build --color=yes
+build --curses=yes
+build --show_timestamps
+build --test_output=errors
+build --keep_going
+
+test --test_output=errors
+
+# Deploy-owned Google Cloud remote execution.
+#
+# evalops/deploy owns the matching GCP API/IAM/worker-pool contract in
+# infrastructure/gcp/stacks/60-bazel-remote-execution.
+#
+# The active dev backend is self-hosted Buildfarm on GCE. CI runs on the
+# colocated repo-scoped runner and uses the local Buildfarm listener directly.
+# Developers can run scripts/run-bazel-rbe.sh to open the SSH/IAP tunnel before
+# invoking the same remote config locally.
+build:remote-gcp-dev --remote_executor=grpc://127.0.0.1:8980
+build:remote-gcp-dev --remote_timeout=3600
+build:remote-gcp-dev --remote_download_toplevel
+build:remote-gcp-dev --platforms=//bazel/platforms:linux_x86_64
+build:remote-gcp-dev --extra_execution_platforms=//bazel/platforms:linux_x86_64
+build:remote-gcp-dev --spawn_strategy=remote
+build:remote-gcp-dev --strategy=Genrule=remote
+build:remote-gcp-dev --strategy=PyCompile=remote
+build:remote-gcp-dev --jobs=32
+
+build:remote-gcp --config=remote-gcp-dev
+
+try-import %workspace%/.bazelrc.user
