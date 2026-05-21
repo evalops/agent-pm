@@ -131,8 +131,13 @@ async def test_periodic_sync_manager_executes_jobs(monkeypatch):
     manager._jobs[0].interval_seconds = 0.1  # speed up test
 
     await manager.start()
-    await asyncio.sleep(0.35)
-    await manager.stop()
+    try:
+        for _ in range(20):
+            if connector.calls >= 2:
+                break
+            await asyncio.sleep(0.05)
+    finally:
+        await manager.stop()
 
     assert connector.calls >= 2
 
