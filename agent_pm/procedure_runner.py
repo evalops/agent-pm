@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 
 _PLACEHOLDER_RE = re.compile(r"{{\s*([a-zA-Z0-9_]+)\s*}}")
 _REPO_RE = re.compile(r"\b[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+\b")
+_SENTRY_QUERY_TOKEN_RE = re.compile(r"\b[a-zA-Z_][a-zA-Z0-9_.-]*:[^\s,()]+")
 _STATS_PERIOD_RE = re.compile(r"\b(\d+)([hdw])\b")
 _LAST_HOURS_RE = re.compile(r"last\s+(\d+)\s+hours?", re.IGNORECASE)
 _NEXT_DAYS_RE = re.compile(r"next\s+(\d+)\s+days?", re.IGNORECASE)
@@ -177,7 +178,7 @@ async def _run_model_step(instruction: str, context: dict[str, Any]) -> str:
 
 async def _run_sentry_scan(instruction: str) -> dict[str, Any]:
     stats_period = _extract_stats_period(instruction, default="14d")
-    query = "is:unresolved" if "is:unresolved" in instruction else "is:unresolved"
+    query = _extract_sentry_query(instruction, default="is:unresolved")
     issues = await sentry_connector.list_issues(query=query, stats_period=stats_period, limit=10)
     error_counts = await sentry_connector.error_counts(stats_period=stats_period)
     return {
@@ -398,6 +399,7 @@ async def _fetch_repository_pull_requests(
     *,
     state: str,
     per_page: int,
+    max_results: int | None = None,
 ) -> list[dict[str, Any]]:
     page = 1
     normalized_page_size = max(1, min(per_page, 100))
@@ -412,6 +414,8 @@ async def _fetch_repository_pull_requests(
         response.raise_for_status()
         page_pulls = response.json()
         pulls.extend(page_pulls)
+        if max_results is not None and len(pulls) >= max_results:
+            return pulls[:max_results]
         if len(page_pulls) < normalized_page_size:
             break
         page += 1
@@ -465,6 +469,17 @@ def _extract_stats_period(instruction: str, *, default: str) -> str:
     last_hours = _extract_last_hours(instruction)
     if last_hours is not None:
         return f"{last_hours}h"
+    return default
+
+
+def _extract_sentry_query(instruction: str, *, default: str) -> str:
+    parenthetical_match = re.search(r"\(([^)]*)\)", instruction)
+    search_spaces = [parenthetical_match.group(1)] if parenthetical_match else []
+    search_spaces.append(instruction)
+    for candidate in search_spaces:
+        tokens = _SENTRY_QUERY_TOKEN_RE.findall(candidate)
+        if tokens:
+            return " ".join(dict.fromkeys(tokens))
     return default
 
 

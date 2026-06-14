@@ -250,6 +250,37 @@ async def test_github_pr_scan_uses_api_url_for_github_diff_endpoints(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_run_sentry_scan_extracts_query_from_instruction(monkeypatch):
+    import agent_pm.procedure_runner as procedure_runner
+
+    captured: dict[str, Any] = {}
+
+    async def fake_list_issues(*, query: str, stats_period: str = "14d", limit: int = 10):
+        captured["query"] = query
+        captured["stats_period"] = stats_period
+        captured["limit"] = limit
+        return [{"id": "issue-1"}]
+
+    async def fake_error_counts(*, stats_period: str = "7d", project: str | None = None):
+        captured["error_counts_period"] = stats_period
+        captured["project"] = project
+        return {"data": []}
+
+    monkeypatch.setattr(procedure_runner.sentry_connector, "list_issues", fake_list_issues)
+    monkeypatch.setattr(procedure_runner.sentry_connector, "error_counts", fake_error_counts)
+
+    result = await procedure_runner._run_sentry_scan(
+        "List resolved Sentry issues (is:resolved, environment:prod, 7d)."
+    )
+
+    assert captured["query"] == "is:resolved environment:prod"
+    assert captured["stats_period"] == "7d"
+    assert captured["limit"] == 10
+    assert captured["error_counts_period"] == "7d"
+    assert result["query"] == "is:resolved environment:prod"
+
+
+@pytest.mark.asyncio
 async def test_linear_scan_respects_assignment_and_stale_rules(monkeypatch):
     import agent_pm.procedure_runner as procedure_runner
 

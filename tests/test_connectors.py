@@ -593,6 +593,31 @@ async def test_mcp_github_pr_scan_without_token_returns_empty_dry_run(monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_mcp_github_pr_scan_dry_run_with_token_skips_network(monkeypatch):
+    import httpx
+
+    import agent_pm.mcp_server as mcp_server
+
+    monkeypatch.setattr(settings, "dry_run", True)
+    monkeypatch.setattr(settings, "github_token", "token")
+    monkeypatch.setattr(settings, "github_repositories", ["evalops/platform"])
+    monkeypatch.setattr(httpx, "AsyncClient", lambda: (_ for _ in ()).throw(AssertionError("network should not run")))
+
+    result = await mcp_server._github_pr_scan("evalops", "dependabot", "open", 20)
+
+    assert result == {
+        "dry_run": True,
+        "prs": [],
+        "total": 0,
+        "org": "evalops",
+        "repositories": ["evalops/platform"],
+        "author": "dependabot",
+        "state": "open",
+        "limit": 20,
+    }
+
+
+@pytest.mark.asyncio
 async def test_mcp_github_pr_scan_without_author_surfaces_repo_errors(monkeypatch):
     import httpx
 
@@ -635,7 +660,7 @@ async def test_mcp_github_pr_scan_without_author_surfaces_repo_errors(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_mcp_github_pr_scan_without_author_paginates_all_repo_pages(monkeypatch):
+async def test_mcp_github_pr_scan_without_author_respects_limit(monkeypatch):
     import httpx
 
     import agent_pm.mcp_server as mcp_server
@@ -672,8 +697,9 @@ async def test_mcp_github_pr_scan_without_author_paginates_all_repo_pages(monkey
 
     result = await mcp_server._github_pr_scan("evalops", None, "open", 20)
 
-    assert result["total"] == 21
-    assert [call["params"]["page"] for call in calls] == [1, 2]
+    assert result["total"] == 20
+    assert [pr["number"] for pr in result["prs"]] == list(range(1, 21))
+    assert [call["params"]["page"] for call in calls] == [1]
 
 
 @pytest.mark.asyncio

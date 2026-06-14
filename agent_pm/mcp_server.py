@@ -153,7 +153,7 @@ async def _github_pr_scan(org: str, author: str | None, state: str, limit: int) 
     from agent_pm.settings import settings
 
     try:
-        if not settings.github_token:
+        if settings.dry_run or not settings.github_token:
             return {
                 "dry_run": True,
                 "prs": [],
@@ -206,16 +206,20 @@ async def _github_pr_scan(org: str, author: str | None, state: str, limit: int) 
 
             # Use connector for org repos
             repos = repos or ["evalops/platform", "evalops/deploy", "evalops/maestro-internal"]
-            all_prs = []
+            all_prs: list[dict[str, Any]] = []
             async with httpx.AsyncClient() as client:
                 for repo in repos:
+                    remaining = limit - len(all_prs)
+                    if remaining <= 0:
+                        break
                     all_prs.extend(
                         await _fetch_repository_pull_requests(
                             client,
                             repo,
                             headers,
                             state=state,
-                            per_page=limit,
+                            per_page=remaining,
+                            max_results=remaining,
                         )
                     )
             return {"prs": all_prs, "total": len(all_prs)}
