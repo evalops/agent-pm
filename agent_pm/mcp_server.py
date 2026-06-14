@@ -115,7 +115,12 @@ async def _linear_scan(action: str, team_id: str | None, state: str | None, limi
             teams = await linear_connector.list_teams()
             return {"teams": teams}
         elif action == "stale_sweep":
-            issues = await linear_connector.list_issues(order_by="updatedAt", limit=limit)
+            issues = await linear_connector.list_issues(
+                team_id=team_id,
+                state=state,
+                order_by="updatedAt",
+                limit=limit,
+            )
             # Flag stale items
             from datetime import UTC, datetime, timedelta
 
@@ -155,9 +160,14 @@ async def _github_pr_scan(org: str, author: str | None, state: str, limit: int) 
             "Authorization": f"Bearer {settings.github_token}",
             "Accept": "application/vnd.github+json",
         }
+        repos = settings.github_repositories
         params: dict[str, Any] = {"per_page": limit, "state": state}
-        query_parts = [f"org:{org}", "is:pr", f"state:{state}"]
+        query_parts = ["is:pr", f"state:{state}"]
         if author:
+            if repos:
+                query_parts.extend(f"repo:{repo}" for repo in repos)
+            else:
+                query_parts.append(f"org:{org}")
             query_parts.append(f"author:{author}")
             params["q"] = " ".join(query_parts)
             async with httpx.AsyncClient() as client:
@@ -172,7 +182,7 @@ async def _github_pr_scan(org: str, author: str | None, state: str, limit: int) 
             return {"prs": data.get("items", []), "total": data.get("total_count", 0)}
         else:
             # Use connector for org repos
-            repos = settings.github_repositories or ["evalops/platform", "evalops/deploy", "evalops/maestro-internal"]
+            repos = repos or ["evalops/platform", "evalops/deploy", "evalops/maestro-internal"]
             all_prs = []
             for repo in repos:
                 async with httpx.AsyncClient() as client:

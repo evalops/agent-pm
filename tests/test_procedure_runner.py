@@ -188,7 +188,8 @@ async def test_linear_scan_respects_assignment_and_stale_rules(monkeypatch):
     ]
     captured: dict[str, Any] = {}
 
-    async def fake_list_issues(*, state=None, order_by="updatedAt", limit=50):
+    async def fake_list_issues(*, assignee_email=None, state=None, order_by="updatedAt", limit=50):
+        captured["assignee_email"] = assignee_email
         captured["state"] = state
         captured["order_by"] = order_by
         captured["limit"] = limit
@@ -211,7 +212,9 @@ async def test_linear_scan_respects_assignment_and_stale_rules(monkeypatch):
     )
 
     stale_by_id = {issue["identifier"]: issue for issue in result["stale"]}
+    assert captured["assignee_email"] == "me@example.com"
     assert captured["state"] is None
+    assert captured["limit"] is None
     assert result["count"] == 2
     assert result["assignee_email"] == "me@example.com"
     assert stale_by_id["LIN-1"]["flags"] == ["past_due", "stale"]
@@ -233,6 +236,11 @@ async def test_weekly_progress_review_uses_calendar_scan(monkeypatch):
                 {
                     "items": [
                         {
+                            "id": "evt-0",
+                            "summary": "Earlier today",
+                            "start": {"dateTime": (now - timedelta(hours=1)).isoformat()},
+                        },
+                        {
                             "id": "evt-1",
                             "summary": "Weekly review",
                             "start": {"dateTime": (now + timedelta(days=1)).isoformat()},
@@ -251,7 +259,31 @@ async def test_weekly_progress_review_uses_calendar_scan(monkeypatch):
     result = await procedure_runner._run_calendar_scan("List upcoming calendar events for this week.")
     procedure = loader.load()["weekly_progress_review"]
 
-    assert captured["since"] is not None
-    assert result["count"] == 1
+    assert captured["since"] == now.replace(hour=0, minute=0, second=0, microsecond=0)
+    assert result["count"] == 2
     assert procedure["steps"][0]["run"] == "calendar_scan"
     assert "calendar_overview" in procedure["steps"][4]["input"]
+
+
+@pytest.mark.asyncio
+async def test_linear_scan_requires_configured_email_for_assigned_to_me(monkeypatch):
+    import agent_pm.procedure_runner as procedure_runner
+
+    captured: dict[str, Any] = {}
+
+    async def fake_list_issues(**kwargs):
+        captured["called"] = True
+        return []
+
+    monkeypatch.setattr(settings, "jira_email", None)
+    monkeypatch.setattr(settings, "google_calendar_delegated_user", None)
+    monkeypatch.setattr(procedure_runner.linear_connector, "list_issues", fake_list_issues)
+
+    result = await procedure_runner._run_linear_scan(
+        "Pull all issues assigned to me, sorted by updatedAt ascending. Return stale items with recommended actions."
+    )
+
+    assert "called" not in captured
+    assert result["issues"] == []
+    assert result["stale"] == []
+    assert result["error"] == "Linear 'assigned to me' scans require JIRA_EMAIL or GOOGLE_CALENDAR_DELEGATED_USER."

@@ -188,11 +188,47 @@ async def test_linear_connector_nests_state_filter(monkeypatch):
     await connector.list_issues(team_id="team-123", state="In Progress", limit=10)
 
     assert "stateFilter" not in captured["query"]
-    assert "issues(filter: $filter, orderBy: $orderBy, first: $first)" in captured["query"]
+    assert "issues(filter: $filter, orderBy: $orderBy, first: $first, after: $after)" in captured["query"]
     assert captured["variables"]["filter"] == {
         "team": {"id": {"eq": "team-123"}},
         "state": {"name": {"eq": "In Progress"}},
     }
+    assert captured["variables"]["after"] is None
+
+
+@pytest.mark.asyncio
+async def test_linear_connector_uses_assignee_email_filter_and_paginates(monkeypatch):
+    monkeypatch.setattr(settings, "linear_api_key", "lin-api-test")
+    monkeypatch.setattr(settings, "dry_run", False)
+    connector = LinearConnector()
+    calls: list[dict[str, Any]] = []
+
+    async def fake_graphql(query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
+        payload = variables or {}
+        calls.append(payload)
+        if len(calls) == 1:
+            return {
+                "issues": {
+                    "nodes": [{"id": "issue-1"}],
+                    "pageInfo": {"hasNextPage": True, "endCursor": "cursor-1"},
+                }
+            }
+        return {
+            "issues": {
+                "nodes": [{"id": "issue-2"}],
+                "pageInfo": {"hasNextPage": False, "endCursor": None},
+            }
+        }
+
+    monkeypatch.setattr(connector, "_graphql", fake_graphql)
+
+    issues = await connector.list_issues(assignee_email="me@example.com", limit=None)
+
+    assert [issue["id"] for issue in issues] == ["issue-1", "issue-2"]
+    assert calls[0]["filter"] == {"assignee": {"email": {"eq": "me@example.com"}}}
+    assert calls[0]["first"] == 50
+    assert calls[0]["after"] is None
+    assert calls[1]["after"] == "cursor-1"
 
 
 # ── Sentry connector tests ────────────────────────────────────────
@@ -351,6 +387,76 @@ async def test_mcp_list_procedures_tool():
 
     data = json.loads(text)
     assert "procedures" in data
+
+
+@pytest.mark.asyncio
+async def test_mcp_linear_stale_sweep_respects_team_and_state(monkeypatch):
+    import agent_pm.mcp_server as mcp_server
+
+    captured: dict[str, Any] = {}
+
+    async def fake_list_issues(*, team_id=None, state=None, order_by="updatedAt", limit=50):
+        captured["team_id"] = team_id
+        captured["state"] = state
+        captured["order_by"] = order_by
+        captured["limit"] = limit
+        return []
+
+    from agent_pm.connectors.linear import linear_connector
+
+    monkeypatch.setattr(linear_connector, "list_issues", fake_list_issues)
+
+    result = await mcp_server._linear_scan("stale_sweep", "team-123", "In Progress", 25)
+
+    assert result == {"total": 0, "stale": []}
+    assert captured == {
+        "team_id": "team-123",
+        "state": "In Progress",
+        "order_by": "updatedAt",
+        "limit": 25,
+    }
+
+
+@pytest.mark.asyncio
+async def test_mcp_github_pr_scan_author_uses_configured_repos(monkeypatch):
+    import httpx
+
+    import agent_pm.mcp_server as mcp_server
+
+    calls: list[dict[str, Any]] = []
+
+    class _FakeResponse:
+        def __init__(self, *, payload: dict[str, Any]) -> None:
+            self._payload = payload
+
+        def json(self) -> dict[str, Any]:
+            return self._payload
+
+        def raise_for_status(self) -> None:
+            return None
+
+    class _FakeGitHubClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def get(self, url: str, *, headers=None, params=None, timeout=None):
+            calls.append({"url": url, "headers": headers, "params": params, "timeout": timeout})
+            return _FakeResponse(payload={"items": [], "total_count": 0})
+
+    monkeypatch.setattr(settings, "github_token", "token")
+    monkeypatch.setattr(settings, "github_repositories", ["evalops/platform", "haasonsaas/homelab"])
+    monkeypatch.setattr(httpx, "AsyncClient", lambda: _FakeGitHubClient())
+
+    result = await mcp_server._github_pr_scan("evalops", "dependabot", "open", 20)
+
+    assert result == {"prs": [], "total": 0}
+    assert calls[0]["url"] == "https://api.github.com/search/issues"
+    assert "repo:evalops/platform" in calls[0]["params"]["q"]
+    assert "repo:haasonsaas/homelab" in calls[0]["params"]["q"]
+    assert "org:evalops" not in calls[0]["params"]["q"]
 
 
 @pytest.mark.asyncio

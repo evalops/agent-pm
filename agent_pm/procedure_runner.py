@@ -187,7 +187,8 @@ async def _run_sentry_scan(instruction: str) -> dict[str, Any]:
 async def _run_calendar_scan(instruction: str) -> dict[str, Any]:
     window_days = _extract_calendar_window_days(instruction, default=7)
     now = datetime.now(tz=UTC)
-    payloads = await CalendarConnector().sync(since=now)
+    window_start = _calendar_window_start(instruction, now)
+    payloads = await CalendarConnector().sync(since=window_start)
 
     events: list[dict[str, Any]] = []
     if payloads and isinstance(payloads[0], dict):
@@ -196,7 +197,7 @@ async def _run_calendar_scan(instruction: str) -> dict[str, Any]:
             events = []
         elif "items" in first:
             items = first.get("items") or []
-            events = [event for event in items if _event_is_within_window(event, now, window_days)]
+            events = [event for event in items if _event_is_within_window(event, window_start, window_days)]
 
     return {
         "events": events,
@@ -208,12 +209,34 @@ async def _run_calendar_scan(instruction: str) -> dict[str, Any]:
 
 async def _run_linear_scan(instruction: str) -> dict[str, Any]:
     state = _extract_linear_state(instruction)
-    issues = await linear_connector.list_issues(state=state, order_by="updatedAt", limit=50)
     assignee_email = _extract_linear_assignee_email(instruction)
+    stale_scan = _instruction_requests_linear_stale_scan(instruction)
+    oldest_updates_first = _instruction_requests_oldest_linear_updates(instruction) or stale_scan
+    if _instruction_requests_assigned_to_me(instruction) and not assignee_email:
+        result: dict[str, Any] = {
+            "issues": [],
+            "count": 0,
+            "state": state,
+            "assignee_email": None,
+            "error": "Linear 'assigned to me' scans require JIRA_EMAIL or GOOGLE_CALENDAR_DELEGATED_USER.",
+        }
+        if stale_scan:
+            result["stale_after_days"] = _extract_stale_days(instruction, default=2)
+            result["stale"] = []
+        return result
+
+    issues = await linear_connector.list_issues(
+        assignee_email=assignee_email,
+        state=state,
+        order_by="updatedAt",
+        limit=None if oldest_updates_first else 50,
+    )
     if assignee_email:
         issues = [
             issue for issue in issues if str(issue.get("assignee", {}).get("email", "")).lower() == assignee_email
         ]
+    if oldest_updates_first:
+        issues = sorted(issues, key=lambda issue: str(issue.get("updatedAt") or ""))
 
     result: dict[str, Any] = {
         "issues": issues,
@@ -221,7 +244,7 @@ async def _run_linear_scan(instruction: str) -> dict[str, Any]:
         "state": state,
         "assignee_email": assignee_email,
     }
-    if _instruction_requests_linear_stale_scan(instruction):
+    if stale_scan:
         stale_after_days = _extract_stale_days(instruction, default=2)
         result["stale_after_days"] = stale_after_days
         result["stale"] = await _collect_stale_linear_issues(issues, stale_after_days=stale_after_days)
@@ -402,6 +425,12 @@ def _extract_calendar_window_days(instruction: str, *, default: int) -> int:
     return default
 
 
+def _calendar_window_start(instruction: str, now: datetime) -> datetime:
+    if "this week" in instruction.lower():
+        return now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return now
+
+
 def _event_is_within_window(event: dict[str, Any], now: datetime, window_days: int) -> bool:
     start = event.get("start", {})
     start_value = str(start.get("dateTime") or start.get("date") or "")
@@ -426,12 +455,22 @@ def _extract_linear_state(instruction: str) -> str | None:
 
 
 def _extract_linear_assignee_email(instruction: str) -> str | None:
-    if "assigned to me" not in instruction.lower():
+    if not _instruction_requests_assigned_to_me(instruction):
         return None
     for email in (settings.jira_email, settings.google_calendar_delegated_user):
         if email:
             return email.lower()
     return None
+
+
+def _instruction_requests_assigned_to_me(instruction: str) -> bool:
+    return "assigned to me" in instruction.lower()
+
+
+def _instruction_requests_oldest_linear_updates(instruction: str) -> bool:
+    lower_instruction = instruction.lower()
+    compact_instruction = re.sub(r"\s+", "", lower_instruction)
+    return "updatedatascending" in compact_instruction or "oldest update" in lower_instruction
 
 
 def _instruction_requests_linear_stale_scan(instruction: str) -> bool:

@@ -52,13 +52,16 @@ class LinearConnector(Connector):
         self,
         *,
         assignee_id: str | None = None,
+        assignee_email: str | None = None,
         team_id: str | None = None,
         state: str | None = None,
         order_by: str = "updatedAt",
-        limit: int = 50,
+        limit: int | None = 50,
     ) -> list[dict[str, Any]]:
         filters: dict[str, Any] = {}
-        if assignee_id:
+        if assignee_email:
+            filters["assignee"] = {"email": {"eq": assignee_email}}
+        elif assignee_id:
             filters["assignee"] = {"id": {"eq": assignee_id}}
         if team_id:
             filters["team"] = {"id": {"eq": team_id}}
@@ -66,8 +69,8 @@ class LinearConnector(Connector):
             filters["state"] = {"name": {"eq": state}}
 
         query = """
-        query($filter: IssueFilter, $orderBy: PaginationOrderBy, $first: Int!) {
-          issues(filter: $filter, orderBy: $orderBy, first: $first) {
+        query($filter: IssueFilter, $orderBy: PaginationOrderBy, $first: Int!, $after: String) {
+          issues(filter: $filter, orderBy: $orderBy, first: $first, after: $after) {
             nodes {
               id identifier title description state { name } priority
               assignee { id name email } team { id name key }
@@ -75,18 +78,43 @@ class LinearConnector(Connector):
               labels { nodes { name } }
               parent { id identifier }
             }
+            pageInfo { hasNextPage endCursor }
           }
         }
         """
-        result = await self._graphql(
-            query,
-            {
-                "filter": filters if filters else None,
-                "orderBy": order_by,
-                "first": limit,
-            },
-        )
-        return result.get("issues", {}).get("nodes", [])
+        issues: list[dict[str, Any]] = []
+        after: str | None = None
+        remaining = limit
+        page_size = 50 if limit is None else limit
+
+        while page_size > 0:
+            result = await self._graphql(
+                query,
+                {
+                    "filter": filters if filters else None,
+                    "orderBy": order_by,
+                    "first": page_size,
+                    "after": after,
+                },
+            )
+            connection = result.get("issues", {})
+            nodes = connection.get("nodes", [])
+            issues.extend(nodes)
+
+            if remaining is not None:
+                remaining -= len(nodes)
+                if remaining <= 0:
+                    break
+                page_size = remaining
+
+            page_info = connection.get("pageInfo", {})
+            if not page_info.get("hasNextPage"):
+                break
+            after = page_info.get("endCursor")
+            if not after:
+                break
+
+        return issues
 
     async def list_teams(self) -> list[dict[str, Any]]:
         query = """
