@@ -317,22 +317,16 @@ async def _list_linear_issues_for_scan(
     limit: int | None = 50,
 ) -> list[dict[str, Any]]:
     team_ids = [team_id] if team_id else settings.linear_team_ids or [None]
-    remaining = limit
     issues: list[dict[str, Any]] = []
     for scan_team_id in team_ids:
-        team_limit = None if remaining is None else remaining
         team_issues = await linear_connector.list_issues(
             assignee_email=assignee_email,
             team_id=scan_team_id,
             state=state,
             order_by=order_by,
-            limit=team_limit,
+            limit=limit,
         )
         issues.extend(team_issues)
-        if remaining is not None:
-            remaining -= len(team_issues)
-            if remaining <= 0:
-                break
     return issues
 
 

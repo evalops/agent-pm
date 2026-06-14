@@ -170,16 +170,25 @@ async def _github_pr_scan(org: str, author: str | None, state: str, limit: int) 
                 query_parts.append(f"org:{org}")
             query_parts.append(f"author:{author}")
             params["q"] = " ".join(query_parts)
+            all_items: list[dict[str, Any]] = []
+            page = 1
             async with httpx.AsyncClient() as client:
-                resp = await client.get(
-                    "https://api.github.com/search/issues",
-                    headers=headers,
-                    params=params,
-                    timeout=30,
-                )
-            resp.raise_for_status()
-            data = resp.json()
-            return {"prs": data.get("items", []), "total": data.get("total_count", 0)}
+                while True:
+                    page_params = {**params, "page": page}
+                    resp = await client.get(
+                        "https://api.github.com/search/issues",
+                        headers=headers,
+                        params=page_params,
+                        timeout=30,
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    items = data.get("items", [])
+                    all_items.extend(items)
+                    if len(items) < params["per_page"] or len(all_items) >= limit:
+                        break
+                    page += 1
+            return {"prs": all_items[:limit], "total": data.get("total_count", 0)}
         else:
             from agent_pm.procedure_runner import _fetch_repository_pull_requests
 
