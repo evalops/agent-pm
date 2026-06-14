@@ -52,6 +52,10 @@ TOOL_DEFINITIONS = [
             "type": "object",
             "properties": {
                 "action": {"type": "string", "enum": ["list_issues", "list_teams", "stale_sweep"]},
+                "instruction": {
+                    "type": "string",
+                    "description": "Optional stale-scan instruction, e.g. 'last updated > 5 days ago'.",
+                },
                 "team_id": {"type": "string", "description": "Linear team ID to scope to."},
                 "state": {"type": "string", "description": "Workflow state name filter (e.g. 'Todo', 'In Progress')."},
                 "limit": {"type": "integer", "default": 50},
@@ -106,44 +110,39 @@ async def _sentry_scan(query: str, stats_period: str, limit: int) -> dict[str, A
         return {"error": str(exc)}
 
 
-async def _linear_scan(action: str, team_id: str | None, state: str | None, limit: int) -> dict[str, Any]:
+async def _linear_scan(
+    action: str,
+    team_id: str | None,
+    state: str | None,
+    limit: int,
+    instruction: str = "",
+) -> dict[str, Any]:
     """Query Linear."""
-    from agent_pm.connectors.linear import linear_connector
+    from agent_pm.procedure_runner import (
+        _collect_stale_linear_issues,
+        _extract_stale_days,
+        _list_linear_issues_for_scan,
+    )
 
     try:
         if action == "list_teams":
+            from agent_pm.connectors.linear import linear_connector
+
             teams = await linear_connector.list_teams()
             return {"teams": teams}
         elif action == "stale_sweep":
-            issues = await linear_connector.list_issues(
+            issues = await _list_linear_issues_for_scan(
                 team_id=team_id,
                 state=state,
                 order_by="updatedAt",
                 limit=None,
             )
             issues = sorted(issues, key=lambda issue: str(issue.get("updatedAt") or ""))
-            # Flag stale items
-            from datetime import UTC, datetime, timedelta
-
-            now = datetime.now(tz=UTC)
-            stale = []
-            for issue in issues:
-                updated = issue.get("updatedAt")
-                due = issue.get("dueDate")
-                flags = []
-                if due and due < now.date().isoformat():
-                    flags.append("past_due")
-                if updated:
-                    updated_dt = datetime.fromisoformat(updated.replace("Z", "+00:00"))
-                    if (now - updated_dt) > timedelta(days=2):
-                        flags.append("stale")
-                if flags:
-                    stale.append(
-                        {"id": issue["id"], "identifier": issue["identifier"], "title": issue["title"], "flags": flags}
-                    )
-            return {"total": len(issues), "stale": stale}
+            stale_after_days = _extract_stale_days(instruction, default=2)
+            stale = await _collect_stale_linear_issues(issues, stale_after_days=stale_after_days)
+            return {"total": len(issues), "stale_after_days": stale_after_days, "stale": stale}
         else:
-            issues = await linear_connector.list_issues(team_id=team_id, state=state, limit=limit)
+            issues = await _list_linear_issues_for_scan(team_id=team_id, state=state, order_by="updatedAt", limit=limit)
             return {"issues": issues, "count": len(issues)}
     except Exception as exc:
         return {"error": str(exc)}
@@ -182,19 +181,22 @@ async def _github_pr_scan(org: str, author: str | None, state: str, limit: int) 
             data = resp.json()
             return {"prs": data.get("items", []), "total": data.get("total_count", 0)}
         else:
+            from agent_pm.procedure_runner import _fetch_repository_pull_requests
+
             # Use connector for org repos
             repos = repos or ["evalops/platform", "evalops/deploy", "evalops/maestro-internal"]
             all_prs = []
-            for repo in repos:
-                async with httpx.AsyncClient() as client:
-                    resp = await client.get(
-                        f"https://api.github.com/repos/{repo}/pulls",
-                        headers=headers,
-                        params={"state": state, "per_page": limit},
-                        timeout=30,
+            async with httpx.AsyncClient() as client:
+                for repo in repos:
+                    all_prs.extend(
+                        await _fetch_repository_pull_requests(
+                            client,
+                            repo,
+                            headers,
+                            state=state,
+                            per_page=limit,
+                        )
                     )
-                resp.raise_for_status()
-                all_prs.extend(resp.json())
             return {"prs": all_prs, "total": len(all_prs)}
     except Exception as exc:
         return {"error": str(exc)}
@@ -227,6 +229,7 @@ TOOL_HANDLERS = {
         args.get("team_id"),
         args.get("state"),
         args.get("limit", 50),
+        args.get("instruction", ""),
     ),
     "agent_pm_github_pr_scan": lambda args: _github_pr_scan(
         args.get("org", "evalops"),

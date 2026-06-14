@@ -38,6 +38,11 @@ _EXPLICIT_PR_AUTHOR_RE = re.compile(
     re.IGNORECASE,
 )
 _KNOWN_AGENT_LOGINS = {"dependabot", "codex", "cursor", "maestro", "claude"}
+_DEFAULT_GITHUB_REPOSITORIES = [
+    "evalops/platform",
+    "evalops/deploy",
+    "evalops/maestro-internal",
+]
 _MODEL_STEP_SYSTEM_PROMPT = (
     "You are executing an operational procedure. Follow the instruction exactly, use the"
     " provided step outputs as source material, and return concise markdown or plain text."
@@ -225,7 +230,7 @@ async def _run_linear_scan(instruction: str) -> dict[str, Any]:
             result["stale"] = []
         return result
 
-    issues = await linear_connector.list_issues(
+    issues = await _list_linear_issues_for_scan(
         assignee_email=assignee_email,
         state=state,
         order_by="updatedAt",
@@ -252,15 +257,7 @@ async def _run_linear_scan(instruction: str) -> dict[str, Any]:
 
 
 async def _run_github_pr_scan(instruction: str) -> dict[str, Any]:
-    repos = (
-        _extract_repositories(instruction)
-        or settings.github_repositories
-        or [
-            "evalops/platform",
-            "evalops/deploy",
-            "evalops/maestro-internal",
-        ]
-    )
+    repos = _resolve_github_pr_repositories(instruction)
     author = _extract_explicit_pr_author(instruction)
     hours = _extract_last_hours(instruction)
     include_agent_authors = _instruction_requests_agent_authors(instruction)
@@ -283,14 +280,14 @@ async def _run_github_pr_scan(instruction: str) -> dict[str, Any]:
     pulls: list[dict[str, Any]] = []
     async with httpx.AsyncClient() as client:
         for repo in repos:
-            response = await client.get(
-                f"https://api.github.com/repos/{repo}/pulls",
-                headers=headers,
-                params={"state": "open", "per_page": 20},
-                timeout=30,
+            repo_pulls = await _fetch_repository_pull_requests(
+                client,
+                repo,
+                headers,
+                state="open",
+                per_page=20,
             )
-            response.raise_for_status()
-            for pr in response.json():
+            for pr in repo_pulls:
                 if _include_pull_request(
                     pr, author=author, include_agent_authors=include_agent_authors, last_hours=hours
                 ):
@@ -309,6 +306,34 @@ async def _run_github_pr_scan(instruction: str) -> dict[str, Any]:
         "last_hours": hours,
         "fetch_diffs": fetch_diffs,
     }
+
+
+async def _list_linear_issues_for_scan(
+    *,
+    team_id: str | None = None,
+    assignee_email: str | None = None,
+    state: str | None = None,
+    order_by: str = "updatedAt",
+    limit: int | None = 50,
+) -> list[dict[str, Any]]:
+    team_ids = [team_id] if team_id else settings.linear_team_ids or [None]
+    remaining = limit
+    issues: list[dict[str, Any]] = []
+    for scan_team_id in team_ids:
+        team_limit = None if remaining is None else remaining
+        team_issues = await linear_connector.list_issues(
+            assignee_email=assignee_email,
+            team_id=scan_team_id,
+            state=state,
+            order_by=order_by,
+            limit=team_limit,
+        )
+        issues.extend(team_issues)
+        if remaining is not None:
+            remaining -= len(team_issues)
+            if remaining <= 0:
+                break
+    return issues
 
 
 async def _collect_stale_linear_issues(
@@ -372,6 +397,33 @@ async def _fetch_pull_request_diff(
     return response.text
 
 
+async def _fetch_repository_pull_requests(
+    client: httpx.AsyncClient,
+    repo: str,
+    headers: dict[str, str],
+    *,
+    state: str,
+    per_page: int,
+) -> list[dict[str, Any]]:
+    page = 1
+    normalized_page_size = max(1, min(per_page, 100))
+    pulls: list[dict[str, Any]] = []
+    while True:
+        response = await client.get(
+            f"https://api.github.com/repos/{repo}/pulls",
+            headers=headers,
+            params={"state": state, "per_page": normalized_page_size, "page": page},
+            timeout=30,
+        )
+        response.raise_for_status()
+        page_pulls = response.json()
+        pulls.extend(page_pulls)
+        if len(page_pulls) < normalized_page_size:
+            break
+        page += 1
+    return pulls
+
+
 def _include_pull_request(
     pr: dict[str, Any],
     *,
@@ -402,6 +454,14 @@ def _parse_datetime(value: str) -> datetime:
 
 def _extract_repositories(instruction: str) -> list[str]:
     return list(dict.fromkeys(_REPO_RE.findall(instruction)))
+
+
+def _resolve_github_pr_repositories(instruction: str) -> list[str]:
+    explicit_repos = _extract_repositories(instruction)
+    default_repos = settings.github_repositories or _DEFAULT_GITHUB_REPOSITORIES
+    if explicit_repos and _instruction_requests_default_github_repositories(instruction):
+        return list(dict.fromkeys([*default_repos, *explicit_repos]))
+    return explicit_repos or default_repos
 
 
 def _extract_stats_period(instruction: str, *, default: str) -> str:
@@ -524,6 +584,10 @@ def _instruction_requests_agent_authors(instruction: str) -> bool:
     return bool(
         re.search(r"\b(?:authored|opened)\s+by\s+(?:bots?|agents?)(?:\s+or\s+(?:bots?|agents?))?\b", instruction, re.I)
     )
+
+
+def _instruction_requests_default_github_repositories(instruction: str) -> bool:
+    return bool(re.search(r"\bevalops\s+repos\b|\bconfigured\s+repos\b|\bdefault\s+repos\b", instruction, re.I))
 
 
 def _instruction_requests_pr_diffs(instruction: str) -> bool:

@@ -412,8 +412,9 @@ async def test_mcp_linear_stale_sweep_respects_team_and_state(monkeypatch):
         },
     ]
 
-    async def fake_list_issues(*, team_id=None, state=None, order_by="updatedAt", limit=50):
+    async def fake_list_issues(*, team_id=None, assignee_email=None, state=None, order_by="updatedAt", limit=50):
         captured["team_id"] = team_id
+        captured["assignee_email"] = assignee_email
         captured["state"] = state
         captured["order_by"] = order_by
         captured["limit"] = limit
@@ -429,10 +430,70 @@ async def test_mcp_linear_stale_sweep_respects_team_and_state(monkeypatch):
     assert [issue["identifier"] for issue in result["stale"]] == ["LIN-1", "LIN-2"]
     assert captured == {
         "team_id": "team-123",
+        "assignee_email": None,
         "state": "In Progress",
         "order_by": "updatedAt",
         "limit": None,
     }
+
+
+@pytest.mark.asyncio
+async def test_mcp_linear_stale_sweep_uses_configured_teams_and_full_stale_rules(monkeypatch):
+    import agent_pm.mcp_server as mcp_server
+
+    now = datetime.now(tz=UTC)
+    issues_by_team = {
+        "team-1": [
+            {
+                "id": "issue-1",
+                "identifier": "LIN-1",
+                "title": "Needs status update",
+                "state": {"name": "In Progress"},
+                "updatedAt": (now - timedelta(days=6)).isoformat().replace("+00:00", "Z"),
+                "dueDate": None,
+            }
+        ],
+        "team-2": [
+            {
+                "id": "issue-2",
+                "identifier": "LIN-2",
+                "title": "Past due",
+                "state": {"name": "Todo"},
+                "updatedAt": (now - timedelta(days=1)).isoformat().replace("+00:00", "Z"),
+                "dueDate": (now - timedelta(days=1)).date().isoformat(),
+            }
+        ],
+    }
+    captured_team_ids: list[str | None] = []
+
+    async def fake_list_issues(*, team_id=None, assignee_email=None, state=None, order_by="updatedAt", limit=50):
+        captured_team_ids.append(team_id)
+        return issues_by_team.get(team_id, [])
+
+    async def fake_get_issue_comments(issue_id: str, limit: int = 20):
+        assert issue_id == "issue-1"
+        return []
+
+    from agent_pm.connectors.linear import linear_connector
+
+    monkeypatch.setattr(settings, "linear_team_ids", ["team-1", "team-2"])
+    monkeypatch.setattr(linear_connector, "list_issues", fake_list_issues)
+    monkeypatch.setattr(linear_connector, "get_issue_comments", fake_get_issue_comments)
+
+    result = await mcp_server._linear_scan(
+        "stale_sweep",
+        None,
+        None,
+        25,
+        'Flag items: due date blown, last updated > 5 days ago, "In Progress" without recent comments.',
+    )
+
+    stale_by_id = {issue["identifier"]: issue for issue in result["stale"]}
+    assert captured_team_ids == ["team-1", "team-2"]
+    assert result["total"] == 2
+    assert result["stale_after_days"] == 5
+    assert stale_by_id["LIN-1"]["flags"] == ["stale", "in_progress_no_recent_comments"]
+    assert stale_by_id["LIN-2"]["flags"] == ["past_due"]
 
 
 @pytest.mark.asyncio
@@ -517,6 +578,48 @@ async def test_mcp_github_pr_scan_without_author_surfaces_repo_errors(monkeypatc
     result = await mcp_server._github_pr_scan("evalops", None, "open", 20)
 
     assert "error" in result
+
+
+@pytest.mark.asyncio
+async def test_mcp_github_pr_scan_without_author_paginates_all_repo_pages(monkeypatch):
+    import httpx
+
+    import agent_pm.mcp_server as mcp_server
+
+    calls: list[dict[str, Any]] = []
+
+    class _FakeResponse:
+        def __init__(self, *, payload: list[dict[str, Any]]) -> None:
+            self._payload = payload
+            self.request = httpx.Request("GET", "https://api.github.com/repos/evalops/platform/pulls")
+
+        def json(self) -> list[dict[str, Any]]:
+            return self._payload
+
+        def raise_for_status(self) -> None:
+            return None
+
+    class _FakeGitHubClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def get(self, url: str, *, headers=None, params=None, timeout=None):
+            calls.append({"url": url, "headers": headers, "params": params, "timeout": timeout})
+            page = int((params or {}).get("page", 1))
+            payload = [{"number": idx} for idx in range(1, 21)] if page == 1 else [{"number": 21}]
+            return _FakeResponse(payload=payload)
+
+    monkeypatch.setattr(settings, "github_token", "token")
+    monkeypatch.setattr(settings, "github_repositories", ["evalops/platform"])
+    monkeypatch.setattr(httpx, "AsyncClient", lambda: _FakeGitHubClient())
+
+    result = await mcp_server._github_pr_scan("evalops", None, "open", 20)
+
+    assert result["total"] == 21
+    assert [call["params"]["page"] for call in calls] == [1, 2]
 
 
 @pytest.mark.asyncio

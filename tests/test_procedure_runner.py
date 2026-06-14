@@ -96,6 +96,62 @@ async def test_github_pr_scan_does_not_narrow_dependabot_mentions(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_github_pr_scan_merges_evalops_defaults_with_explicit_repo(monkeypatch):
+    import agent_pm.procedure_runner as procedure_runner
+
+    monkeypatch.setattr(settings, "dry_run", True)
+    monkeypatch.setattr(settings, "github_token", None)
+    monkeypatch.setattr(settings, "github_repositories", ["evalops/platform", "evalops/deploy"])
+
+    result = await procedure_runner._run_github_pr_scan("Scan open PRs across evalops repos and haasonsaas/homelab.")
+
+    assert result["repositories"] == ["evalops/platform", "evalops/deploy", "haasonsaas/homelab"]
+
+
+@pytest.mark.asyncio
+async def test_github_pr_scan_paginates_all_open_pr_pages(monkeypatch):
+    import agent_pm.procedure_runner as procedure_runner
+
+    pages = {
+        1: [
+            {"number": index, "user": {"login": "alice"}, "created_at": "2026-06-14T00:00:00Z"}
+            for index in range(1, 21)
+        ],
+        2: [{"number": 21, "user": {"login": "alice"}, "created_at": "2026-06-14T00:00:00Z"}],
+    }
+    calls: list[dict[str, Any]] = []
+
+    class _FakeGitHubClient:
+        async def __aenter__(self) -> _FakeGitHubClient:
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        async def get(
+            self,
+            url: str,
+            *,
+            headers: dict[str, str] | None = None,
+            params: dict[str, Any] | None = None,
+            timeout: int | None = None,
+        ) -> _FakeResponse:
+            calls.append({"url": url, "headers": headers, "params": params, "timeout": timeout})
+            page = int((params or {}).get("page", 1))
+            return _FakeResponse(json_data=pages[page])
+
+    monkeypatch.setattr(settings, "dry_run", False)
+    monkeypatch.setattr(settings, "github_token", "token")
+    monkeypatch.setattr(settings, "github_repositories", ["evalops/platform"])
+    monkeypatch.setattr(procedure_runner.httpx, "AsyncClient", lambda: _FakeGitHubClient())
+
+    result = await procedure_runner._run_github_pr_scan("Scan open PRs across evalops repos.")
+
+    assert result["count"] == 21
+    assert [call["params"]["page"] for call in calls] == [1, 2]
+
+
+@pytest.mark.asyncio
 async def test_github_pr_scan_fetches_diffs_for_agent_authors(monkeypatch):
     import agent_pm.procedure_runner as procedure_runner
 
@@ -229,8 +285,9 @@ async def test_linear_scan_respects_assignment_and_stale_rules(monkeypatch):
     ]
     captured: dict[str, Any] = {}
 
-    async def fake_list_issues(*, assignee_email=None, state=None, order_by="updatedAt", limit=50):
+    async def fake_list_issues(*, assignee_email=None, team_id=None, state=None, order_by="updatedAt", limit=50):
         captured["assignee_email"] = assignee_email
+        captured["team_id"] = team_id
         captured["state"] = state
         captured["order_by"] = order_by
         captured["limit"] = limit
@@ -261,6 +318,26 @@ async def test_linear_scan_respects_assignment_and_stale_rules(monkeypatch):
     assert stale_by_id["LIN-1"]["flags"] == ["past_due", "stale"]
     assert stale_by_id["LIN-2"]["flags"] == ["in_progress_no_recent_comments"]
     assert captured["comment_ids"] == ["issue-2"]
+
+
+@pytest.mark.asyncio
+async def test_linear_scan_uses_configured_team_ids_when_unscoped(monkeypatch):
+    import agent_pm.procedure_runner as procedure_runner
+
+    captured: list[str | None] = []
+
+    async def fake_list_issues(*, team_id=None, assignee_email=None, state=None, order_by="updatedAt", limit=50):
+        captured.append(team_id)
+        return [{"id": f"{team_id}-1", "identifier": f"{team_id}-1", "title": f"Issue for {team_id}"}]
+
+    monkeypatch.setattr(settings, "linear_team_ids", ["team-1", "team-2"])
+    monkeypatch.setattr(procedure_runner.linear_connector, "list_issues", fake_list_issues)
+
+    result = await procedure_runner._run_linear_scan("List all issues sorted by updatedAt ascending.")
+
+    assert captured == ["team-1", "team-2"]
+    assert result["count"] == 2
+    assert {issue["identifier"] for issue in result["issues"]} == {"team-1-1", "team-2-1"}
 
 
 @pytest.mark.asyncio
