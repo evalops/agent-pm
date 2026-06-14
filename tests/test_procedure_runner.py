@@ -413,6 +413,39 @@ async def test_weekly_progress_review_uses_calendar_scan(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_execute_procedure_returns_step_outputs(monkeypatch):
+    import agent_pm.procedure_runner as procedure_runner
+
+    procedure = {
+        "name": "weekly_progress_review",
+        "description": "Multi-source progress sweep.",
+        "steps": [
+            {"id": "calendar_overview", "run": "calendar_scan"},
+            {"id": "compose_digest", "run": "model"},
+        ],
+    }
+
+    async def fake_execute_step(step: dict[str, Any], context: dict[str, Any]) -> Any:
+        if step["id"] == "calendar_overview":
+            return {"count": 2, "events": [{"id": "evt-1"}]}
+        assert context["calendar_overview"] == {"count": 2, "events": [{"id": "evt-1"}]}
+        return "Digest body"
+
+    monkeypatch.setattr(procedure_runner.loader, "load", lambda: {"weekly_progress_review": procedure})
+    monkeypatch.setattr(procedure_runner, "_execute_step", fake_execute_step)
+
+    result = await procedure_runner.execute_procedure("weekly_progress_review")
+
+    assert result["procedure"] == "weekly_progress_review"
+    assert result["title"] == "weekly_progress_review"
+    assert result["description"] == "Multi-source progress sweep."
+    assert result["dry_run"] is False
+    assert result["calendar_overview"] == {"count": 2, "events": [{"id": "evt-1"}]}
+    assert result["compose_digest"] == "Digest body"
+    assert result["digest"] == "Digest body"
+
+
+@pytest.mark.asyncio
 async def test_linear_scan_requires_configured_email_for_assigned_to_me(monkeypatch):
     import agent_pm.procedure_runner as procedure_runner
 

@@ -80,7 +80,7 @@ async def execute_procedure(name: str, *, dry_run: bool = False) -> dict[str, An
             context[step_id] = result
             _store_step_aliases(step_id, result, context)
 
-    return {"procedure": name, "plan_id": plan_id, "dry_run": dry_run}
+    return {**context, "dry_run": dry_run}
 
 
 async def _generate_plan_result(name: str, proc: dict[str, Any]) -> dict[str, Any]:
