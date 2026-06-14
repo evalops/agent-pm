@@ -1,4 +1,6 @@
 import asyncio
+from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 
@@ -149,6 +151,7 @@ async def test_periodic_sync_manager_executes_jobs(monkeypatch):
 
 # ── Linear connector tests ────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_linear_connector_disabled_without_key(monkeypatch):
     monkeypatch.setattr(settings, "linear_api_key", None)
@@ -168,7 +171,32 @@ async def test_linear_connector_dry_run(monkeypatch):
         assert payloads[0].get("dry_run") is True or "team_id" in payloads[0]
 
 
+@pytest.mark.asyncio
+async def test_linear_connector_nests_state_filter(monkeypatch):
+    monkeypatch.setattr(settings, "linear_api_key", "lin-api-test")
+    monkeypatch.setattr(settings, "dry_run", False)
+    connector = LinearConnector()
+    captured: dict[str, Any] = {}
+
+    async def fake_graphql(query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
+        captured["query"] = query
+        captured["variables"] = variables or {}
+        return {"issues": {"nodes": []}}
+
+    monkeypatch.setattr(connector, "_graphql", fake_graphql)
+
+    await connector.list_issues(team_id="team-123", state="In Progress", limit=10)
+
+    assert "stateFilter" not in captured["query"]
+    assert "issues(filter: $filter, orderBy: $orderBy, first: $first)" in captured["query"]
+    assert captured["variables"]["filter"] == {
+        "team": {"id": {"eq": "team-123"}},
+        "state": {"name": {"eq": "In Progress"}},
+    }
+
+
 # ── Sentry connector tests ────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_sentry_connector_disabled_without_credentials(monkeypatch):
@@ -191,6 +219,7 @@ async def test_sentry_connector_dry_run(monkeypatch):
 
 # ── Procedure loader tests ────────────────────────────────────────
 
+
 def test_procedure_loader_discovers_yaml(tmp_path, monkeypatch):
     from agent_pm.procedures import ProcedureLoader
 
@@ -207,30 +236,63 @@ def test_procedure_loader_discovers_yaml(tmp_path, monkeypatch):
 
 # ── Scheduler tests ───────────────────────────────────────────────
 
+
 def test_scheduler_cron_matching():
     from agent_pm.scheduler import ProcedureScheduler
-    from datetime import datetime, timezone
 
     s = ProcedureScheduler()
 
     # Match: Monday 9:00 UTC
-    dt_match = datetime(2026, 6, 15, 9, 0, tzinfo=timezone.utc)  # Monday
+    dt_match = datetime(2026, 6, 15, 9, 0, tzinfo=UTC)  # Monday
     assert s._cron_matches("0 9 * * 1", dt_match) is True
 
     # No match: wrong minute
-    dt_wrong_min = datetime(2026, 6, 15, 9, 1, tzinfo=timezone.utc)
+    dt_wrong_min = datetime(2026, 6, 15, 9, 1, tzinfo=UTC)
     assert s._cron_matches("0 9 * * 1", dt_wrong_min) is False
 
     # No match: wrong day
-    dt_wrong_day = datetime(2026, 6, 16, 9, 0, tzinfo=timezone.utc)  # Tuesday
+    dt_wrong_day = datetime(2026, 6, 16, 9, 0, tzinfo=UTC)  # Tuesday
     assert s._cron_matches("0 9 * * 1", dt_wrong_day) is False
+
+
+@pytest.mark.asyncio
+async def test_scheduler_run_procedure_uses_plan_helper(monkeypatch):
+    import agent_pm.planner as planner_module
+    from agent_pm.procedures import loader
+    from agent_pm.scheduler import ProcedureScheduler
+
+    captured: dict[str, Any] = {}
+
+    monkeypatch.setattr(
+        loader,
+        "load",
+        lambda: {
+            "weekly_progress_review": {
+                "name": "Weekly Progress Review",
+                "steps": [{"name": "check-status"}, {"name": "publish-digest"}],
+            }
+        },
+    )
+
+    def fake_generate_plan_for_idea(idea):
+        captured["idea"] = idea.model_dump()
+        return {"plan_id": "plan-123"}
+
+    monkeypatch.setattr(planner_module, "generate_plan_for_idea", fake_generate_plan_for_idea)
+
+    await ProcedureScheduler()._run_procedure("weekly_progress_review")
+
+    assert captured["idea"]["title"] == "Weekly Progress Review"
+    assert captured["idea"]["context"] == "Scheduled execution of procedure with 2 steps."
 
 
 # ── MCP server tests ──────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_mcp_initialize():
     from agent_pm.mcp_server import handle_request
+
     resp = await handle_request({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
     assert resp["result"]["serverInfo"]["name"] == "agent-pm-mcp"
 
@@ -238,6 +300,7 @@ async def test_mcp_initialize():
 @pytest.mark.asyncio
 async def test_mcp_list_tools():
     from agent_pm.mcp_server import handle_request
+
     resp = await handle_request({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
     tool_names = [t["name"] for t in resp["result"]["tools"]]
     assert "agent_pm_run_procedure" in tool_names
@@ -250,13 +313,51 @@ async def test_mcp_list_tools():
 @pytest.mark.asyncio
 async def test_mcp_list_procedures_tool():
     from agent_pm.mcp_server import handle_request
-    resp = await handle_request({
-        "jsonrpc": "2.0",
-        "id": 3,
-        "method": "tools/call",
-        "params": {"name": "agent_pm_list_procedures", "arguments": {}},
-    })
+
+    resp = await handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {"name": "agent_pm_list_procedures", "arguments": {}},
+        }
+    )
     text = resp["result"]["content"][0]["text"]
     import json
+
     data = json.loads(text)
     assert "procedures" in data
+
+
+@pytest.mark.asyncio
+async def test_mcp_run_procedure_uses_plan_helper(monkeypatch):
+    import agent_pm.mcp_server as mcp_server
+    import agent_pm.planner as planner_module
+    from agent_pm.procedures import loader
+
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(settings, "dry_run", False)
+    monkeypatch.setattr(
+        loader,
+        "load",
+        lambda: {
+            "deploy_readiness": {
+                "name": "Deploy Readiness",
+                "description": "Review deploy blockers.",
+                "steps": [],
+            }
+        },
+    )
+
+    def fake_generate_plan_for_idea(idea):
+        captured["idea"] = idea.model_dump()
+        return {"plan_id": "plan-456"}
+
+    monkeypatch.setattr(planner_module, "generate_plan_for_idea", fake_generate_plan_for_idea)
+
+    result = await mcp_server._run_procedure("deploy_readiness", dry_run=True)
+
+    assert result == {"procedure": "deploy_readiness", "plan_id": "plan-456", "dry_run": True}
+    assert captured["idea"]["title"] == "Deploy Readiness"
+    assert captured["idea"]["context"] == "Review deploy blockers."
+    assert settings.dry_run is False

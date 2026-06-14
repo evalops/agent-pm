@@ -62,13 +62,12 @@ class LinearConnector(Connector):
             filters["assignee"] = {"id": {"eq": assignee_id}}
         if team_id:
             filters["team"] = {"id": {"eq": team_id}}
-        state_filter: dict[str, Any] | None = None
         if state:
-            state_filter = {"name": {"eq": state}}
+            filters["state"] = {"name": {"eq": state}}
 
         query = """
-        query($filter: IssueFilter, $stateFilter: WorkflowStateFilter, $orderBy: PaginationOrderBy, $first: Int!) {
-          issues(filter: $filter, state: $stateFilter, orderBy: $orderBy, first: $first) {
+        query($filter: IssueFilter, $orderBy: PaginationOrderBy, $first: Int!) {
+          issues(filter: $filter, orderBy: $orderBy, first: $first) {
             nodes {
               id identifier title description state { name } priority
               assignee { id name email } team { id name key }
@@ -83,7 +82,6 @@ class LinearConnector(Connector):
             query,
             {
                 "filter": filters if filters else None,
-                "stateFilter": state_filter,
                 "orderBy": order_by,
                 "first": limit,
             },

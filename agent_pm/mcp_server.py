@@ -24,7 +24,11 @@ TOOL_DEFINITIONS = [
             "type": "object",
             "properties": {
                 "name": {"type": "string", "description": "Procedure name (stem of YAML file in procedures/)."},
-                "dry_run": {"type": "boolean", "default": False, "description": "If true, don't mutate external systems."},
+                "dry_run": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "If true, don't mutate external systems.",
+                },
             },
             "required": ["name"],
         },
@@ -78,9 +82,9 @@ TOOL_DEFINITIONS = [
 
 async def _run_procedure(name: str, dry_run: bool) -> dict[str, Any]:
     """Execute a procedure and return the result."""
-    from agent_pm.procedures import loader
-    from agent_pm.planner import generate_plan
     from agent_pm.models import Idea
+    from agent_pm.planner import generate_plan_for_idea
+    from agent_pm.procedures import loader
     from agent_pm.settings import settings
 
     procedures = loader.load()
@@ -96,7 +100,7 @@ async def _run_procedure(name: str, dry_run: bool) -> dict[str, Any]:
             title=proc.get("name", name),
             context=proc.get("description", f"Execute procedure: {name}"),
         )
-        result = await generate_plan(idea)
+        result = generate_plan_for_idea(idea)
         return {"procedure": name, "plan_id": result.get("plan_id"), "dry_run": dry_run}
     except Exception as exc:
         return {"error": str(exc), "procedure": name}
@@ -110,9 +114,7 @@ async def _sentry_scan(query: str, stats_period: str, limit: int) -> dict[str, A
     from agent_pm.connectors.sentry import sentry_connector
 
     try:
-        issues = await sentry_connector.list_issues(
-            query=query, stats_period=stats_period, limit=limit
-        )
+        issues = await sentry_connector.list_issues(query=query, stats_period=stats_period, limit=limit)
         return {"issues": issues, "count": len(issues), "query": query}
     except Exception as exc:
         return {"error": str(exc)}
@@ -129,8 +131,9 @@ async def _linear_scan(action: str, team_id: str | None, state: str | None, limi
         elif action == "stale_sweep":
             issues = await linear_connector.list_issues(order_by="updatedAt", limit=limit)
             # Flag stale items
-            from datetime import datetime, timedelta, timezone
-            now = datetime.now(tz=timezone.utc)
+            from datetime import UTC, datetime, timedelta
+
+            now = datetime.now(tz=UTC)
             stale = []
             for issue in issues:
                 updated = issue.get("updatedAt")
@@ -143,12 +146,12 @@ async def _linear_scan(action: str, team_id: str | None, state: str | None, limi
                     if (now - updated_dt) > timedelta(days=2):
                         flags.append("stale")
                 if flags:
-                    stale.append({"id": issue["id"], "identifier": issue["identifier"], "title": issue["title"], "flags": flags})
+                    stale.append(
+                        {"id": issue["id"], "identifier": issue["identifier"], "title": issue["title"], "flags": flags}
+                    )
             return {"total": len(issues), "stale": stale}
         else:
-            issues = await linear_connector.list_issues(
-                team_id=team_id, state=state, limit=limit
-            )
+            issues = await linear_connector.list_issues(team_id=team_id, state=state, limit=limit)
             return {"issues": issues, "count": len(issues)}
     except Exception as exc:
         return {"error": str(exc)}
@@ -156,18 +159,18 @@ async def _linear_scan(action: str, team_id: str | None, state: str | None, limi
 
 async def _github_pr_scan(org: str, author: str | None, state: str, limit: int) -> dict[str, Any]:
     """Scan GitHub PRs."""
-    from agent_pm.connectors.github import GitHubConnector
     from agent_pm.settings import settings
 
     try:
         # Use the existing GitHub connector
         import httpx
+
         headers = {
             "Authorization": f"Bearer {settings.github_token}",
             "Accept": "application/vnd.github+json",
         }
         params: dict[str, Any] = {"per_page": limit, "state": state}
-        query_parts = [f"org:{org}", f"is:pr", f"state:{state}"]
+        query_parts = [f"org:{org}", "is:pr", f"state:{state}"]
         if author:
             query_parts.append(f"author:{author}")
             params["q"] = " ".join(query_parts)
@@ -202,6 +205,7 @@ async def _github_pr_scan(org: str, author: str | None, state: str, limit: int) 
 
 async def _list_procedures() -> dict[str, Any]:
     from agent_pm.procedures import loader
+
     procedures = loader.load()
     summaries = {}
     for name, proc in procedures.items():
@@ -215,9 +219,7 @@ async def _list_procedures() -> dict[str, Any]:
 
 # Tool dispatch
 TOOL_HANDLERS = {
-    "agent_pm_run_procedure": lambda args: _run_procedure(
-        args.get("name", ""), args.get("dry_run", False)
-    ),
+    "agent_pm_run_procedure": lambda args: _run_procedure(args.get("name", ""), args.get("dry_run", False)),
     "agent_pm_sentry_scan": lambda args: _sentry_scan(
         args.get("query", "is:unresolved"),
         args.get("stats_period", "14d"),

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from contextlib import suppress
+from datetime import UTC, datetime
 
 import yaml
 
@@ -30,9 +31,7 @@ class ProcedureScheduler:
     """
 
     def __init__(self, schedule_path: str | None = None) -> None:
-        self._schedule_path = schedule_path or str(
-            settings.procedure_dir.parent / "config" / "procedure_schedule.yaml"
-        )
+        self._schedule_path = schedule_path or str(settings.procedure_dir.parent / "config" / "procedure_schedule.yaml")
         self._schedules: dict[str, str] = {}
         self._last_runs: dict[str, datetime] = {}
         self._task: asyncio.Task[None] | None = None
@@ -95,8 +94,8 @@ class ProcedureScheduler:
         logger.info("Running scheduled procedure: %s", name)
 
         try:
-            from agent_pm.planner import generate_plan
             from agent_pm.models import Idea
+            from agent_pm.planner import generate_plan_for_idea
 
             proc = procedures[name]
             title = proc.get("name", name)
@@ -105,14 +104,14 @@ class ProcedureScheduler:
                 title=title,
                 context=f"Scheduled execution of procedure with {steps} steps.",
             )
-            result = await generate_plan(idea)
+            result = generate_plan_for_idea(idea)
             logger.info("Procedure '%s' completed (plan_id=%s)", name, result.get("plan_id"))
         except Exception:
             logger.exception("Procedure '%s' failed", name)
 
     async def _tick(self) -> None:
         """Single scheduler tick — check all scheduled procedures."""
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         for name, cron_expr in self._schedules.items():
             if not self._cron_matches(cron_expr, now):
                 continue
@@ -139,18 +138,14 @@ class ProcedureScheduler:
             return
         self._running = True
         self._task = asyncio.create_task(self._loop())
-        logger.info(
-            "Procedure scheduler started (%d procedures)", len(self._schedules)
-        )
+        logger.info("Procedure scheduler started (%d procedures)", len(self._schedules))
 
     async def stop(self) -> None:
         self._running = False
         if self._task:
             self._task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
             self._task = None
 
 
