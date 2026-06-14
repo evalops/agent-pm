@@ -554,6 +554,7 @@ async def test_mcp_github_pr_scan_author_uses_configured_repos(monkeypatch):
             calls.append({"url": url, "headers": headers, "params": params, "timeout": timeout})
             return _FakeResponse(payload={"items": [], "total_count": 0})
 
+    monkeypatch.setattr(settings, "dry_run", False)
     monkeypatch.setattr(settings, "github_token", "token")
     monkeypatch.setattr(settings, "github_repositories", ["evalops/platform", "haasonsaas/homelab"])
     monkeypatch.setattr(httpx, "AsyncClient", lambda: _FakeGitHubClient())
@@ -650,6 +651,7 @@ async def test_mcp_github_pr_scan_without_author_surfaces_repo_errors(monkeypatc
         async def get(self, url: str, *, headers=None, params=None, timeout=None):
             return _FakeResponse(status_code=403, payload=[])
 
+    monkeypatch.setattr(settings, "dry_run", False)
     monkeypatch.setattr(settings, "github_token", "token")
     monkeypatch.setattr(settings, "github_repositories", ["evalops/platform"])
     monkeypatch.setattr(httpx, "AsyncClient", lambda: _FakeGitHubClient())
@@ -691,6 +693,7 @@ async def test_mcp_github_pr_scan_without_author_respects_limit(monkeypatch):
             payload = [{"number": idx} for idx in range(1, 21)] if page == 1 else [{"number": 21}]
             return _FakeResponse(payload=payload)
 
+    monkeypatch.setattr(settings, "dry_run", False)
     monkeypatch.setattr(settings, "github_token", "token")
     monkeypatch.setattr(settings, "github_repositories", ["evalops/platform"])
     monkeypatch.setattr(httpx, "AsyncClient", lambda: _FakeGitHubClient())

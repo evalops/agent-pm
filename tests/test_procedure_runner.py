@@ -269,9 +269,7 @@ async def test_run_sentry_scan_extracts_query_from_instruction(monkeypatch):
     monkeypatch.setattr(procedure_runner.sentry_connector, "list_issues", fake_list_issues)
     monkeypatch.setattr(procedure_runner.sentry_connector, "error_counts", fake_error_counts)
 
-    result = await procedure_runner._run_sentry_scan(
-        "List resolved Sentry issues (is:resolved, environment:prod, 7d)."
-    )
+    result = await procedure_runner._run_sentry_scan("List resolved Sentry issues (is:resolved, environment:prod, 7d).")
 
     assert captured["query"] == "is:resolved environment:prod"
     assert captured["stats_period"] == "7d"
