@@ -346,6 +346,35 @@ async def test_scheduler_run_procedure_executes_yaml_steps(monkeypatch):
     assert captured["error_counts_period"] == "14d"
 
 
+@pytest.mark.asyncio
+async def test_scheduler_loop_ticks_current_minute_before_sleep(monkeypatch):
+    import agent_pm.scheduler as scheduler_module
+
+    scheduler = scheduler_module.ProcedureScheduler()
+    scheduler._running = True
+    events: list[str] = []
+
+    class _FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 6, 15, 9, 0, 30, 500000, tzinfo=UTC)
+
+    async def fake_tick() -> None:
+        events.append("tick")
+
+    async def fake_sleep(seconds: float) -> None:
+        events.append(f"sleep:{seconds}")
+        scheduler._running = False
+
+    monkeypatch.setattr(scheduler_module, "datetime", _FrozenDatetime)
+    monkeypatch.setattr(scheduler, "_tick", fake_tick)
+    monkeypatch.setattr(scheduler_module.asyncio, "sleep", fake_sleep)
+
+    await scheduler._loop()
+
+    assert events == ["tick", "sleep:29.5"]
+
+
 # ── MCP server tests ──────────────────────────────────────────────
 
 
@@ -536,6 +565,31 @@ async def test_mcp_github_pr_scan_author_uses_configured_repos(monkeypatch):
     assert "repo:evalops/platform" in calls[0]["params"]["q"]
     assert "repo:haasonsaas/homelab" in calls[0]["params"]["q"]
     assert "org:evalops" not in calls[0]["params"]["q"]
+
+
+@pytest.mark.asyncio
+async def test_mcp_github_pr_scan_without_token_returns_empty_dry_run(monkeypatch):
+    import httpx
+
+    import agent_pm.mcp_server as mcp_server
+
+    monkeypatch.setattr(settings, "dry_run", False)
+    monkeypatch.setattr(settings, "github_token", None)
+    monkeypatch.setattr(settings, "github_repositories", ["evalops/platform"])
+    monkeypatch.setattr(httpx, "AsyncClient", lambda: (_ for _ in ()).throw(AssertionError("network should not run")))
+
+    result = await mcp_server._github_pr_scan("evalops", "dependabot", "open", 20)
+
+    assert result == {
+        "dry_run": True,
+        "prs": [],
+        "total": 0,
+        "org": "evalops",
+        "repositories": ["evalops/platform"],
+        "author": "dependabot",
+        "state": "open",
+        "limit": 20,
+    }
 
 
 @pytest.mark.asyncio

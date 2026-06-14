@@ -153,6 +153,18 @@ async def _github_pr_scan(org: str, author: str | None, state: str, limit: int) 
     from agent_pm.settings import settings
 
     try:
+        if not settings.github_token:
+            return {
+                "dry_run": True,
+                "prs": [],
+                "total": 0,
+                "org": org,
+                "repositories": settings.github_repositories or [],
+                "author": author,
+                "state": state,
+                "limit": limit,
+            }
+
         # Use the existing GitHub connector
         import httpx
 

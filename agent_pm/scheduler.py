@@ -132,13 +132,13 @@ class ProcedureScheduler:
     async def _loop(self) -> None:
         """Main scheduler loop — wakes at the top of each minute."""
         while self._running:
-            now = datetime.now(tz=UTC)
-            seconds_to_next_minute = 60 - now.second
             try:
-                await asyncio.sleep(seconds_to_next_minute)
                 if not self._running:
                     break
                 await self._tick()
+                now = datetime.now(tz=UTC)
+                seconds_to_next_minute = 60 - now.second - (now.microsecond / 1_000_000)
+                await asyncio.sleep(seconds_to_next_minute)
             except Exception:
                 logger.exception("Scheduler tick error")
 
