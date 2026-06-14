@@ -61,6 +61,22 @@ class ProcedureScheduler:
                 return True
             for alt in field.split(","):
                 alt = alt.strip()
+                if "/" in alt:
+                    base, step_s = alt.split("/", 1)
+                    step = int(step_s)
+                    if step <= 0:
+                        continue
+                    if base == "*":
+                        if value % step == 0:
+                            return True
+                        continue
+                    if "-" in base:
+                        lo_s, hi_s = base.split("-", 1)
+                        lo = int(lo_s)
+                        hi = int(hi_s)
+                        if lo <= value <= hi and (value - lo) % step == 0:
+                            return True
+                        continue
                 if "-" in alt:
                     lo_s, hi_s = alt.split("-", 1)
                     if int(lo_s) <= value <= int(hi_s):
@@ -84,6 +100,7 @@ class ProcedureScheduler:
 
     async def _run_procedure(self, name: str) -> None:
         """Execute a named procedure."""
+        from agent_pm.procedure_runner import execute_procedure
         from agent_pm.procedures import loader
 
         procedures = loader.load()
@@ -94,17 +111,7 @@ class ProcedureScheduler:
         logger.info("Running scheduled procedure: %s", name)
 
         try:
-            from agent_pm.models import Idea
-            from agent_pm.planner import generate_plan_for_idea
-
-            proc = procedures[name]
-            title = proc.get("name", name)
-            steps = len(proc.get("steps", []))
-            idea = Idea(
-                title=title,
-                context=f"Scheduled execution of procedure with {steps} steps.",
-            )
-            result = generate_plan_for_idea(idea)
+            result = await execute_procedure(name)
             logger.info("Procedure '%s' completed (plan_id=%s)", name, result.get("plan_id"))
         except Exception:
             logger.exception("Procedure '%s' failed", name)

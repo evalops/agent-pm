@@ -77,6 +77,7 @@ def test_generate_plan_produces_status_digest(monkeypatch):
     )
 
     assert result["prd_markdown"].startswith("# PRD: Test Initiative")
+    assert result["plan_id"]
     assert "status_digest" in result
     assert "*Test Initiative*" in result["status_digest"]
     assert "stubbed plan" in result["raw_plan"]
@@ -453,7 +454,7 @@ def test_goal_alignment_appends_note(monkeypatch, capture_alignment_events):
     monkeypatch.setattr(
         planner_module.embeddings,
         "generate_embedding_sync",
-        lambda text, model="text-embedding-3-small": ([1.0, 0.0] if "visibility" in text.lower() else [0.0, 1.0]),
+        lambda text, model="text-embedding-3-small": [1.0, 0.0] if "visibility" in text.lower() else [0.0, 1.0],
     )
     monkeypatch.setattr(planner_module.embeddings, "cosine_similarity", lambda a, b: 0.95 if a == b else 0.1)
 

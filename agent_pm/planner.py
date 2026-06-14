@@ -3,6 +3,7 @@
 import json
 import logging
 from collections import deque
+from uuid import uuid4
 
 from . import embeddings
 from .agent_sdk import (
@@ -383,6 +384,7 @@ def generate_plan(
     tools: list[dict[str, object]],
     enable_tools: bool,
 ) -> dict[str, str]:
+    plan_id = uuid4().hex
     constraint_list = constraints or []
     user_prompt = build_user_prompt(title, context, constraint_list)
     agent_prompt = (
@@ -554,6 +556,7 @@ def generate_plan(
         }
     )
     result = {
+        "plan_id": plan_id,
         "prd_markdown": prd,
         "raw_plan": text,
         "status_digest": digest,

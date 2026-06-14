@@ -82,31 +82,17 @@ TOOL_DEFINITIONS = [
 
 async def _run_procedure(name: str, dry_run: bool) -> dict[str, Any]:
     """Execute a procedure and return the result."""
-    from agent_pm.models import Idea
-    from agent_pm.planner import generate_plan_for_idea
+    from agent_pm.procedure_runner import execute_procedure
     from agent_pm.procedures import loader
-    from agent_pm.settings import settings
 
     procedures = loader.load()
     if name not in procedures:
         return {"error": f"Procedure '{name}' not found", "available": list(procedures.keys())}
 
-    proc = procedures[name]
     try:
-        prev_dry = settings.dry_run
-        if dry_run:
-            settings.dry_run = True
-        idea = Idea(
-            title=proc.get("name", name),
-            context=proc.get("description", f"Execute procedure: {name}"),
-        )
-        result = generate_plan_for_idea(idea)
-        return {"procedure": name, "plan_id": result.get("plan_id"), "dry_run": dry_run}
+        return await execute_procedure(name, dry_run=dry_run)
     except Exception as exc:
         return {"error": str(exc), "procedure": name}
-    finally:
-        if dry_run:
-            settings.dry_run = prev_dry
 
 
 async def _sentry_scan(query: str, stats_period: str, limit: int) -> dict[str, Any]:

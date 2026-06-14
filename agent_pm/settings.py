@@ -1,11 +1,15 @@
 """Application settings loaded from environment variables."""
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_dry_run_override: ContextVar[bool | None] = ContextVar("agent_pm_dry_run_override", default=None)
 
 
 class Settings(BaseSettings):
@@ -40,6 +44,21 @@ class Settings(BaseSettings):
     procedure_dir: Path = Field(Path("./procedures"), alias="PROCEDURE_DIR")
     allowed_projects: list[str] = Field(default_factory=list, alias="ALLOWED_PROJECTS")
 
+    def __getattribute__(self, name: str):
+        if name == "dry_run":
+            override = _dry_run_override.get()
+            if override is not None:
+                return override
+        return super().__getattribute__(name)
+
+    @contextmanager
+    def override_dry_run(self, value: bool):
+        token = _dry_run_override.set(value)
+        try:
+            yield
+        finally:
+            _dry_run_override.reset(token)
+
     @field_validator("google_calendar_scopes", mode="before")
     @classmethod
     def _parse_google_scopes(cls, value):
@@ -60,7 +79,12 @@ class Settings(BaseSettings):
         return value
 
     @field_validator(
-        "github_repositories", "linear_team_ids", "slack_sync_channels", "gmail_label_filter", "notion_database_ids", mode="before"
+        "github_repositories",
+        "linear_team_ids",
+        "slack_sync_channels",
+        "gmail_label_filter",
+        "notion_database_ids",
+        mode="before",
     )
     @classmethod
     def _parse_string_lists(cls, value):
@@ -136,7 +160,6 @@ class Settings(BaseSettings):
     enable_opentelemetry: bool = Field(False, alias="ENABLE_OPENTELEMETRY")
     otel_service_name: str = Field("agent-pm", alias="OTEL_SERVICE_NAME")
     otel_exporter_endpoint: str | None = Field(None, alias="OTEL_EXPORTER_ENDPOINT")
-    github_repositories: list[str] = Field(default_factory=list, alias="GITHUB_REPOSITORIES")
     github_sync_interval_seconds: int = Field(900, alias="GITHUB_SYNC_INTERVAL_SECONDS")
     gmail_service_account_json: str | None = Field(None, alias="GMAIL_SERVICE_ACCOUNT_JSON")
     gmail_service_account_file: Path | None = Field(None, alias="GMAIL_SERVICE_ACCOUNT_FILE")

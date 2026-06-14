@@ -254,10 +254,18 @@ def test_scheduler_cron_matching():
     dt_wrong_day = datetime(2026, 6, 16, 9, 0, tzinfo=UTC)  # Tuesday
     assert s._cron_matches("0 9 * * 1", dt_wrong_day) is False
 
+    # Match: every 4 hours
+    dt_every_four = datetime(2026, 6, 15, 8, 0, tzinfo=UTC)
+    assert s._cron_matches("0 */4 * * *", dt_every_four) is True
+
+    # No match: not on a 4-hour boundary
+    dt_not_every_four = datetime(2026, 6, 15, 10, 0, tzinfo=UTC)
+    assert s._cron_matches("0 */4 * * *", dt_not_every_four) is False
+
 
 @pytest.mark.asyncio
-async def test_scheduler_run_procedure_uses_plan_helper(monkeypatch):
-    import agent_pm.planner as planner_module
+async def test_scheduler_run_procedure_executes_yaml_steps(monkeypatch):
+    import agent_pm.procedure_runner as procedure_runner
     from agent_pm.procedures import loader
     from agent_pm.scheduler import ProcedureScheduler
 
@@ -269,21 +277,37 @@ async def test_scheduler_run_procedure_uses_plan_helper(monkeypatch):
         lambda: {
             "weekly_progress_review": {
                 "name": "Weekly Progress Review",
-                "steps": [{"name": "check-status"}, {"name": "publish-digest"}],
+                "steps": [
+                    {
+                        "id": "sentry_check",
+                        "run": "sentry_scan",
+                        "input": "List unresolved Sentry issues (is:unresolved, sort=freq, 14d).",
+                    }
+                ],
             }
         },
     )
 
-    def fake_generate_plan_for_idea(idea):
-        captured["idea"] = idea.model_dump()
-        return {"plan_id": "plan-123"}
+    async def fake_list_issues(*, query: str, sort: str = "freq", limit: int = 10, stats_period: str = "14d"):
+        captured["query"] = query
+        captured["stats_period"] = stats_period
+        captured["limit"] = limit
+        return [{"id": "issue-1"}]
 
-    monkeypatch.setattr(planner_module, "generate_plan_for_idea", fake_generate_plan_for_idea)
+    async def fake_error_counts(*, stats_period: str = "7d", project: str | None = None):
+        captured["error_counts_period"] = stats_period
+        captured["project"] = project
+        return {"data": []}
+
+    monkeypatch.setattr(procedure_runner.sentry_connector, "list_issues", fake_list_issues)
+    monkeypatch.setattr(procedure_runner.sentry_connector, "error_counts", fake_error_counts)
 
     await ProcedureScheduler()._run_procedure("weekly_progress_review")
 
-    assert captured["idea"]["title"] == "Weekly Progress Review"
-    assert captured["idea"]["context"] == "Scheduled execution of procedure with 2 steps."
+    assert captured["query"] == "is:unresolved"
+    assert captured["stats_period"] == "14d"
+    assert captured["limit"] == 10
+    assert captured["error_counts_period"] == "14d"
 
 
 # ── MCP server tests ──────────────────────────────────────────────
@@ -330,9 +354,9 @@ async def test_mcp_list_procedures_tool():
 
 
 @pytest.mark.asyncio
-async def test_mcp_run_procedure_uses_plan_helper(monkeypatch):
+async def test_mcp_run_procedure_executes_model_steps_without_mutating_global_dry_run(monkeypatch):
     import agent_pm.mcp_server as mcp_server
-    import agent_pm.planner as planner_module
+    import agent_pm.procedure_runner as procedure_runner
     from agent_pm.procedures import loader
 
     captured: dict[str, Any] = {}
@@ -344,20 +368,40 @@ async def test_mcp_run_procedure_uses_plan_helper(monkeypatch):
             "deploy_readiness": {
                 "name": "Deploy Readiness",
                 "description": "Review deploy blockers.",
-                "steps": [],
+                "steps": [{"id": "compose_report", "run": "model", "input": "Compose a terse report."}],
             }
         },
     )
 
-    def fake_generate_plan_for_idea(idea):
-        captured["idea"] = idea.model_dump()
-        return {"plan_id": "plan-456"}
+    async def fake_to_thread(func, *args, **kwargs):
+        captured["dry_run_during_call"] = settings.dry_run
+        captured["function"] = func
+        captured["args"] = args
+        return "report body"
 
-    monkeypatch.setattr(planner_module, "generate_plan_for_idea", fake_generate_plan_for_idea)
+    monkeypatch.setattr(procedure_runner.asyncio, "to_thread", fake_to_thread)
 
     result = await mcp_server._run_procedure("deploy_readiness", dry_run=True)
 
-    assert result == {"procedure": "deploy_readiness", "plan_id": "plan-456", "dry_run": True}
-    assert captured["idea"]["title"] == "Deploy Readiness"
-    assert captured["idea"]["context"] == "Review deploy blockers."
+    assert result["procedure"] == "deploy_readiness"
+    assert result["dry_run"] is True
+    assert result["plan_id"]
+    assert captured["function"].__self__ is procedure_runner.openai_client
+    assert captured["function"].__name__ == "create_plan"
+    assert captured["dry_run_during_call"] is True
+    assert settings.dry_run is False
+
+
+@pytest.mark.asyncio
+async def test_settings_dry_run_override_is_task_local(monkeypatch):
+    monkeypatch.setattr(settings, "dry_run", False)
+
+    async def observe(value: bool) -> bool:
+        with settings.override_dry_run(value):
+            await asyncio.sleep(0)
+            return settings.dry_run
+
+    observed = await asyncio.gather(observe(True), observe(False))
+
+    assert observed == [True, False]
     assert settings.dry_run is False
