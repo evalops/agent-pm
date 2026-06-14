@@ -7,7 +7,7 @@ import json
 import logging
 import re
 from contextlib import nullcontext
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -17,6 +17,7 @@ from agent_pm.clients.calendar_client import calendar_client
 from agent_pm.clients.jira_client import jira_client
 from agent_pm.clients.openai_client import openai_client
 from agent_pm.clients.slack_client import slack_client
+from agent_pm.connectors.calendar import CalendarConnector
 from agent_pm.connectors.linear import linear_connector
 from agent_pm.connectors.sentry import sentry_connector
 from agent_pm.models import Idea, JiraIssuePayload
@@ -30,6 +31,13 @@ _PLACEHOLDER_RE = re.compile(r"{{\s*([a-zA-Z0-9_]+)\s*}}")
 _REPO_RE = re.compile(r"\b[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+\b")
 _STATS_PERIOD_RE = re.compile(r"\b(\d+)([hdw])\b")
 _LAST_HOURS_RE = re.compile(r"last\s+(\d+)\s+hours?", re.IGNORECASE)
+_NEXT_DAYS_RE = re.compile(r"next\s+(\d+)\s+days?", re.IGNORECASE)
+_STALE_DAYS_RE = re.compile(r"last updated\s*>\s*(\d+)\s+days?\s+ago", re.IGNORECASE)
+_EXPLICIT_PR_AUTHOR_RE = re.compile(
+    r"\b(?:authored|opened)\s+by\s+([a-zA-Z0-9_.-]+)\b|\bauthor\s*:\s*([a-zA-Z0-9_.-]+)\b",
+    re.IGNORECASE,
+)
+_KNOWN_AGENT_LOGINS = {"dependabot", "codex", "cursor", "maestro", "claude"}
 _MODEL_STEP_SYSTEM_PROMPT = (
     "You are executing an operational procedure. Follow the instruction exactly, use the"
     " provided step outputs as source material, and return concise markdown or plain text."
@@ -105,6 +113,8 @@ async def _execute_step_once(step: dict[str, Any], context: dict[str, Any]) -> A
 
     if run_name == "sentry_scan":
         return await _run_sentry_scan(_render_text(step.get("input", ""), context))
+    if run_name == "calendar_scan":
+        return await _run_calendar_scan(_render_text(step.get("input", ""), context))
     if run_name == "linear_scan":
         return await _run_linear_scan(_render_text(step.get("input", ""), context))
     if run_name == "github_pr_scan":
@@ -170,10 +180,46 @@ async def _run_sentry_scan(instruction: str) -> dict[str, Any]:
     }
 
 
+async def _run_calendar_scan(instruction: str) -> dict[str, Any]:
+    window_days = _extract_calendar_window_days(instruction, default=7)
+    now = datetime.now(tz=UTC)
+    payloads = await CalendarConnector().sync(since=now)
+
+    events: list[dict[str, Any]]
+    if payloads and isinstance(payloads[0], dict) and "items" in payloads[0]:
+        items = payloads[0].get("items") or []
+        events = [event for event in items if _event_is_within_window(event, now, window_days)]
+    else:
+        events = payloads
+
+    return {
+        "events": events,
+        "count": len(events),
+        "window_days": window_days,
+        "calendar_id": settings.calendar_id,
+    }
+
+
 async def _run_linear_scan(instruction: str) -> dict[str, Any]:
-    state = "In Progress" if "in progress" in instruction.lower() else None
+    state = _extract_linear_state(instruction)
     issues = await linear_connector.list_issues(state=state, order_by="updatedAt", limit=50)
-    return {"issues": issues, "count": len(issues), "state": state}
+    assignee_email = _extract_linear_assignee_email(instruction)
+    if assignee_email:
+        issues = [
+            issue for issue in issues if str(issue.get("assignee", {}).get("email", "")).lower() == assignee_email
+        ]
+
+    result: dict[str, Any] = {
+        "issues": issues,
+        "count": len(issues),
+        "state": state,
+        "assignee_email": assignee_email,
+    }
+    if _instruction_requests_linear_stale_scan(instruction):
+        stale_after_days = _extract_stale_days(instruction, default=2)
+        result["stale_after_days"] = stale_after_days
+        result["stale"] = await _collect_stale_linear_issues(issues, stale_after_days=stale_after_days)
+    return result
 
 
 async def _run_github_pr_scan(instruction: str) -> dict[str, Any]:
@@ -186,18 +232,19 @@ async def _run_github_pr_scan(instruction: str) -> dict[str, Any]:
             "evalops/maestro-internal",
         ]
     )
-    author = "dependabot" if "dependabot" in instruction.lower() else None
+    author = _extract_explicit_pr_author(instruction)
     hours = _extract_last_hours(instruction)
-    include_agent_authors = any(
-        token in instruction.lower() for token in ("bot", "agent", "codex", "cursor", "maestro", "claude")
-    )
+    include_agent_authors = _instruction_requests_agent_authors(instruction)
+    fetch_diffs = _instruction_requests_pr_diffs(instruction)
 
     if settings.dry_run or not settings.github_token or not repos:
         return {
             "dry_run": True,
             "repositories": repos,
             "author": author,
+            "include_agent_authors": include_agent_authors,
             "last_hours": hours,
+            "fetch_diffs": fetch_diffs,
         }
 
     headers = {
@@ -218,9 +265,77 @@ async def _run_github_pr_scan(instruction: str) -> dict[str, Any]:
                 if _include_pull_request(
                     pr, author=author, include_agent_authors=include_agent_authors, last_hours=hours
                 ):
-                    pulls.append(pr)
+                    payload = dict(pr)
+                    payload["repository"] = repo
+                    if fetch_diffs:
+                        payload["diff"] = await _fetch_pull_request_diff(client, repo, pr, headers)
+                    pulls.append(payload)
 
-    return {"prs": pulls, "count": len(pulls), "repositories": repos, "author": author, "last_hours": hours}
+    return {
+        "prs": pulls,
+        "count": len(pulls),
+        "repositories": repos,
+        "author": author,
+        "include_agent_authors": include_agent_authors,
+        "last_hours": hours,
+        "fetch_diffs": fetch_diffs,
+    }
+
+
+async def _collect_stale_linear_issues(
+    issues: list[dict[str, Any]],
+    *,
+    stale_after_days: int,
+) -> list[dict[str, Any]]:
+    now = datetime.now(tz=UTC)
+    stale_items = []
+    for issue in issues:
+        flags = []
+        due = issue.get("dueDate")
+        updated_at = issue.get("updatedAt")
+        state_name = str(issue.get("state", {}).get("name", ""))
+
+        if due and str(due) < now.date().isoformat():
+            flags.append("past_due")
+        if updated_at:
+            updated_dt = _parse_datetime(str(updated_at))
+            if (now - updated_dt) > timedelta(days=stale_after_days):
+                flags.append("stale")
+        if state_name == "In Progress":
+            comments = await linear_connector.get_issue_comments(str(issue.get("id", "")), limit=20)
+            if not _has_recent_comment(comments, now, stale_after_days):
+                flags.append("in_progress_no_recent_comments")
+        if flags:
+            stale_items.append(
+                {
+                    "id": issue.get("id"),
+                    "identifier": issue.get("identifier"),
+                    "title": issue.get("title"),
+                    "state": state_name,
+                    "assignee": issue.get("assignee"),
+                    "dueDate": due,
+                    "updatedAt": updated_at,
+                    "flags": flags,
+                    "recommended_action": _recommend_linear_action(flags),
+                }
+            )
+    return stale_items
+
+
+async def _fetch_pull_request_diff(
+    client: httpx.AsyncClient,
+    repo: str,
+    pr: dict[str, Any],
+    headers: dict[str, str],
+) -> str:
+    diff_url = str(pr.get("diff_url") or f"https://api.github.com/repos/{repo}/pulls/{pr.get('number')}")
+    response = await client.get(
+        diff_url,
+        headers={**headers, "Accept": "application/vnd.github.v3.diff"},
+        timeout=30,
+    )
+    response.raise_for_status()
+    return response.text
 
 
 def _include_pull_request(
@@ -230,12 +345,11 @@ def _include_pull_request(
     include_agent_authors: bool,
     last_hours: int | None,
 ) -> bool:
-    login = str(pr.get("user", {}).get("login", "")).lower()
-    if author and author not in login:
+    login = str(pr.get("user", {}).get("login", ""))
+    normalized_login = _normalize_github_login(login)
+    if author and normalized_login != author:
         return False
-    if include_agent_authors and not any(
-        token in login for token in ("bot", "agent", "codex", "cursor", "maestro", "claude")
-    ):
+    if include_agent_authors and not _is_agent_login(normalized_login):
         return False
     if last_hours is None:
         return True
@@ -271,6 +385,110 @@ def _extract_last_hours(instruction: str) -> int | None:
     if match:
         return int(match.group(1))
     return None
+
+
+def _extract_calendar_window_days(instruction: str, *, default: int) -> int:
+    if "this week" in instruction.lower():
+        return 7
+    match = _NEXT_DAYS_RE.search(instruction)
+    if match:
+        return int(match.group(1))
+    return default
+
+
+def _event_is_within_window(event: dict[str, Any], now: datetime, window_days: int) -> bool:
+    start = event.get("start", {})
+    start_value = str(start.get("dateTime") or start.get("date") or "")
+    if not start_value:
+        return False
+    if "T" in start_value:
+        start_at = _parse_datetime(start_value)
+    else:
+        start_at = datetime.fromisoformat(f"{start_value}T00:00:00+00:00")
+    return now <= start_at <= now + timedelta(days=window_days)
+
+
+def _extract_linear_state(instruction: str) -> str | None:
+    lower_instruction = instruction.lower()
+    if re.search(r"\b(?:state|status)\s*(?:is|=|:)\s*\"?in progress\"?\b", lower_instruction):
+        return "In Progress"
+    if re.search(r"\b(?:list|scan|show|pull)\s+(?:all\s+)?in progress issues\b", lower_instruction):
+        return "In Progress"
+    if re.search(r"\b(?:only|just)\s+in progress\b", lower_instruction):
+        return "In Progress"
+    return None
+
+
+def _extract_linear_assignee_email(instruction: str) -> str | None:
+    if "assigned to me" not in instruction.lower():
+        return None
+    for email in (settings.jira_email, settings.google_calendar_delegated_user):
+        if email:
+            return email.lower()
+    return None
+
+
+def _instruction_requests_linear_stale_scan(instruction: str) -> bool:
+    lower_instruction = instruction.lower()
+    return any(
+        token in lower_instruction
+        for token in ("stale", "due date", "last updated", "recent comments", "recommended actions")
+    )
+
+
+def _extract_stale_days(instruction: str, *, default: int) -> int:
+    match = _STALE_DAYS_RE.search(instruction)
+    if match:
+        return int(match.group(1))
+    return default
+
+
+def _has_recent_comment(comments: list[dict[str, Any]], now: datetime, stale_after_days: int) -> bool:
+    for comment in comments:
+        created_at = comment.get("createdAt")
+        if created_at and (now - _parse_datetime(str(created_at))) <= timedelta(days=stale_after_days):
+            return True
+    return False
+
+
+def _recommend_linear_action(flags: list[str]) -> str:
+    if "past_due" in flags:
+        return "Update the due date or unblock the issue owner."
+    if "in_progress_no_recent_comments" in flags:
+        return "Request a status update or add a progress note."
+    return "Review the issue and decide whether to update or close it."
+
+
+def _extract_explicit_pr_author(instruction: str) -> str | None:
+    match = _EXPLICIT_PR_AUTHOR_RE.search(instruction)
+    if not match:
+        return None
+    author = match.group(1) or match.group(2)
+    normalized = _normalize_github_login(author)
+    if normalized in {"bot", "bots", "agent", "agents"}:
+        return None
+    return normalized
+
+
+def _instruction_requests_agent_authors(instruction: str) -> bool:
+    return bool(
+        re.search(r"\b(?:authored|opened)\s+by\s+(?:bots?|agents?)(?:\s+or\s+(?:bots?|agents?))?\b", instruction, re.I)
+    )
+
+
+def _instruction_requests_pr_diffs(instruction: str) -> bool:
+    return bool(re.search(r"\bfetch\b[^.\n]*\bdiffs?\b", instruction, re.I))
+
+
+def _normalize_github_login(login: str) -> str:
+    normalized = login.lower().strip()
+    if normalized.endswith("[bot]"):
+        normalized = normalized[:-5]
+    return normalized
+
+
+def _is_agent_login(login: str) -> bool:
+    return login in _KNOWN_AGENT_LOGINS or login.endswith(("-bot", "_bot", "-agent", "_agent"))
 
 
 def _store_step_aliases(step_id: str, result: Any, context: dict[str, Any]) -> None:

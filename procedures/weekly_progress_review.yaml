@@ -2,6 +2,12 @@ name: weekly_progress_review
 description: "Multi-source progress sweep — Calendar → Sentry → Linear → GitHub → Slack digest."
 schedule: "0 9 * * 1"  # Monday 9am
 steps:
+  - id: calendar_overview
+    run: calendar_scan
+    input: |
+      List upcoming calendar events for this week.
+      Flag reviews, launches, or conflicts that could change priority this week.
+
   - id: sentry_check
     run: sentry_scan
     input: |
@@ -26,8 +32,8 @@ steps:
   - id: compose_digest
     run: model
     input: |
-      Compose a Slack digest from sentry_check, linear_stale_scan, and github_pr_sweep.
-      Format as bulleted sections: Sentry, Linear, GitHub PRs.
+      Compose a Slack digest from calendar_overview, sentry_check, linear_stale_scan, and github_pr_sweep.
+      Format as bulleted sections: Calendar, Sentry, Linear, GitHub PRs.
       Keep it terse — no marketing language, no self-narration.
       Include concrete next actions (merge PR #X, close issue #Y).
 
