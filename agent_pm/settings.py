@@ -21,6 +21,12 @@ class Settings(BaseSettings):
         description="Optional when DRY_RUN=true; required for live OpenAI access.",
     )
     github_token: str | None = Field(None, alias="GITHUB_TOKEN")
+    github_repositories: list[str] = Field(default_factory=list, alias="GITHUB_REPOSITORIES")
+    linear_api_key: str | None = Field(None, alias="LINEAR_API_KEY")
+    linear_team_ids: list[str] = Field(default_factory=list, alias="LINEAR_TEAM_IDS")
+    sentry_auth_token: str | None = Field(None, alias="SENTRY_AUTH_TOKEN")
+    sentry_org_slug: str | None = Field(None, alias="SENTRY_ORG_SLUG")
+    sentry_base_url: str | None = Field(None, alias="SENTRY_BASE_URL")
     jira_base_url: str | None = Field(None, alias="JIRA_BASE_URL")
     jira_api_token: str | None = Field(None, alias="JIRA_API_TOKEN")
     jira_email: str | None = Field(None, alias="JIRA_EMAIL")
@@ -54,7 +60,7 @@ class Settings(BaseSettings):
         return value
 
     @field_validator(
-        "github_repositories", "slack_sync_channels", "gmail_label_filter", "notion_database_ids", mode="before"
+        "github_repositories", "linear_team_ids", "slack_sync_channels", "gmail_label_filter", "notion_database_ids", mode="before"
     )
     @classmethod
     def _parse_string_lists(cls, value):

@@ -1,0 +1,35 @@
+name: agent_pr_security_scan
+description: "Scan recent agent-generated PRs for security issues — leaked secrets, unsafe patterns, missing validation."
+schedule: "0 */4 * * *"  # Every 4 hours
+steps:
+  - id: fetch_recent_agent_prs
+    run: github_pr_scan
+    input: |
+      List PRs opened in the last 24 hours across evalops repos and haasonsaas/homelab.
+      Filter to PRs authored by bots or agents (dependabot, codex, cursor, maestro, claude).
+      For each PR, fetch the diff.
+
+  - id: security_scan
+    run: model
+    input: |
+      For each PR diff, scan for:
+      - Secrets: API keys, tokens, passwords, private keys (AWS_*, GITHUB_TOKEN, etc.)
+      - Unsafe code: eval(), exec(), subprocess with shell=True, os.system()
+      - Missing authz: new endpoints without auth checks, unauthenticated handlers
+      - Dependency risk: new dependencies with known vulnerabilities
+      - Hardcoded credentials: connection strings, JWT secrets
+      Categorize findings by severity (critical/high/medium/low).
+      Return a structured list per PR.
+
+  - id: compose_alerts
+    run: model
+    input: |
+      If any critical or high findings exist, compose an immediate Slack alert.
+      Otherwise, produce a "clean scan" summary.
+      Format: PR link, finding, severity, suggested fix.
+
+  - id: deliver
+    run: publish_status_digest
+    with:
+      channel: "#engineering"
+      body_md: "{{alerts}}"

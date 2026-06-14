@@ -1,0 +1,36 @@
+name: dependabot_triage
+description: "Scan all open Dependabot PRs across repos — merge green security bumps, report skips."
+schedule: "0 10 * * *"  # Daily 10am
+steps:
+  - id: scan_dependabot_prs
+    run: github_pr_scan
+    input: |
+      Search for open PRs across evalops repos and haasonsaas/homelab authored by dependabot.
+      For each PR: check CI status, mergeability, labels.
+      Flag security-relevant bumps: look for GHSA-* advisory references or CVEs in the body.
+      Return categorized list:
+      - MERGEABLE_SECURITY: green CI + security fix — auto-merge
+      - MERGEABLE_ROUTINE: green CI + no security impact — report for review
+      - BLOCKED: failing CI or conflicts — report for manual attention
+
+  - id: merge_security_bumps
+    run: model
+    input: |
+      For each PR in MERGEABLE_SECURITY:
+      Determine if it can be auto-merged (squash merge).
+      List the PR number, repo, title, and the security advisory references.
+      Output the merge commands or note any that need manual intervention.
+
+  - id: compose_report
+    run: model
+    input: |
+      Compose a terse Slack report:
+      - Merged: list PRs auto-merged with advisory refs
+      - Skipped: list BLOCKED or MERGEABLE_ROUTINE PRs with reason
+      Keep it dry and factual. No marketing.
+
+  - id: deliver
+    run: publish_status_digest
+    with:
+      channel: "#engineering"
+      body_md: "{{report}}"

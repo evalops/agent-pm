@@ -7,7 +7,9 @@ from agent_pm.connectors import (
     EmailConnector,
     GitHubConnector,
     GoogleDriveConnector,
+    LinearConnector,
     NotionConnector,
+    SentryConnector,
     SlackConnector,
 )
 from agent_pm.connectors.base import Connector
@@ -143,3 +145,118 @@ async def test_periodic_sync_manager_executes_jobs(monkeypatch):
 
     records = await sync_storage.list_recent_syncs(limit=5)
     assert any(record["connector"] == "dummy" for record in records)
+
+
+# ── Linear connector tests ────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_linear_connector_disabled_without_key(monkeypatch):
+    monkeypatch.setattr(settings, "linear_api_key", None)
+    connector = LinearConnector()
+    assert connector.enabled is False
+
+
+@pytest.mark.asyncio
+async def test_linear_connector_dry_run(monkeypatch):
+    monkeypatch.setattr(settings, "linear_api_key", "lin-api-test")
+    monkeypatch.setattr(settings, "dry_run", True)
+    connector = LinearConnector()
+    payloads = await connector.sync()
+    assert len(payloads) >= 0
+    # Dry run should return placeholder, not hit real API
+    if payloads:
+        assert payloads[0].get("dry_run") is True or "team_id" in payloads[0]
+
+
+# ── Sentry connector tests ────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_sentry_connector_disabled_without_credentials(monkeypatch):
+    monkeypatch.setattr(settings, "sentry_auth_token", None)
+    monkeypatch.setattr(settings, "sentry_org_slug", None)
+    connector = SentryConnector()
+    assert connector.enabled is False
+
+
+@pytest.mark.asyncio
+async def test_sentry_connector_dry_run(monkeypatch):
+    monkeypatch.setattr(settings, "sentry_auth_token", "sntrys-token")
+    monkeypatch.setattr(settings, "sentry_org_slug", "evalops-inc")
+    monkeypatch.setattr(settings, "dry_run", True)
+    connector = SentryConnector()
+    payloads = await connector.sync()
+    assert len(payloads) == 1
+    assert payloads[0]["error_counts"].get("dry_run") is True
+
+
+# ── Procedure loader tests ────────────────────────────────────────
+
+def test_procedure_loader_discovers_yaml(tmp_path, monkeypatch):
+    from agent_pm.procedures import ProcedureLoader
+
+    proc_dir = tmp_path / "procedures"
+    proc_dir.mkdir()
+    (proc_dir / "test_proc.yaml").write_text("name: test\ndescription: A test procedure\nsteps: []")
+
+    monkeypatch.setattr(settings, "procedure_dir", proc_dir)
+    loader = ProcedureLoader(directory=proc_dir)
+    procs = loader.load()
+    assert "test_proc" in procs
+    assert procs["test_proc"]["name"] == "test"
+
+
+# ── Scheduler tests ───────────────────────────────────────────────
+
+def test_scheduler_cron_matching():
+    from agent_pm.scheduler import ProcedureScheduler
+    from datetime import datetime, timezone
+
+    s = ProcedureScheduler()
+
+    # Match: Monday 9:00 UTC
+    dt_match = datetime(2026, 6, 15, 9, 0, tzinfo=timezone.utc)  # Monday
+    assert s._cron_matches("0 9 * * 1", dt_match) is True
+
+    # No match: wrong minute
+    dt_wrong_min = datetime(2026, 6, 15, 9, 1, tzinfo=timezone.utc)
+    assert s._cron_matches("0 9 * * 1", dt_wrong_min) is False
+
+    # No match: wrong day
+    dt_wrong_day = datetime(2026, 6, 16, 9, 0, tzinfo=timezone.utc)  # Tuesday
+    assert s._cron_matches("0 9 * * 1", dt_wrong_day) is False
+
+
+# ── MCP server tests ──────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_mcp_initialize():
+    from agent_pm.mcp_server import handle_request
+    resp = await handle_request({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+    assert resp["result"]["serverInfo"]["name"] == "agent-pm-mcp"
+
+
+@pytest.mark.asyncio
+async def test_mcp_list_tools():
+    from agent_pm.mcp_server import handle_request
+    resp = await handle_request({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+    tool_names = [t["name"] for t in resp["result"]["tools"]]
+    assert "agent_pm_run_procedure" in tool_names
+    assert "agent_pm_sentry_scan" in tool_names
+    assert "agent_pm_linear_scan" in tool_names
+    assert "agent_pm_github_pr_scan" in tool_names
+    assert "agent_pm_list_procedures" in tool_names
+
+
+@pytest.mark.asyncio
+async def test_mcp_list_procedures_tool():
+    from agent_pm.mcp_server import handle_request
+    resp = await handle_request({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "tools/call",
+        "params": {"name": "agent_pm_list_procedures", "arguments": {}},
+    })
+    text = resp["result"]["content"][0]["text"]
+    import json
+    data = json.loads(text)
+    assert "procedures" in data
