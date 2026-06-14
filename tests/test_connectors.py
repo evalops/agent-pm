@@ -354,7 +354,44 @@ async def test_mcp_list_procedures_tool():
 
 
 @pytest.mark.asyncio
-async def test_mcp_run_procedure_executes_model_steps_without_mutating_global_dry_run(monkeypatch):
+async def test_mcp_run_procedure_dry_run_short_circuits_model_steps(monkeypatch):
+    import agent_pm.mcp_server as mcp_server
+    import agent_pm.procedure_runner as procedure_runner
+    from agent_pm.procedures import loader
+
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(settings, "dry_run", False)
+    monkeypatch.setattr(
+        loader,
+        "load",
+        lambda: {
+            "deploy_readiness": {
+                "name": "Deploy Readiness",
+                "description": "Review deploy blockers.",
+                "steps": [{"id": "compose_report", "run": "model", "input": "Compose a terse report."}],
+            }
+        },
+    )
+
+    async def fake_to_thread(func, *args, **kwargs):
+        captured["called"] = True
+        captured["function"] = func
+        return "report body"
+
+    monkeypatch.setattr(procedure_runner.asyncio, "to_thread", fake_to_thread)
+
+    result = await mcp_server._run_procedure("deploy_readiness", dry_run=True)
+
+    assert result["procedure"] == "deploy_readiness"
+    assert result["dry_run"] is True
+    assert result["plan_id"]
+    # dry_run=True should short-circuit before calling to_thread
+    assert "called" not in captured
+    assert settings.dry_run is False
+
+
+@pytest.mark.asyncio
+async def test_mcp_run_procedure_live_executes_model_steps_in_thread(monkeypatch):
     import agent_pm.mcp_server as mcp_server
     import agent_pm.procedure_runner as procedure_runner
     from agent_pm.procedures import loader
@@ -381,14 +418,14 @@ async def test_mcp_run_procedure_executes_model_steps_without_mutating_global_dr
 
     monkeypatch.setattr(procedure_runner.asyncio, "to_thread", fake_to_thread)
 
-    result = await mcp_server._run_procedure("deploy_readiness", dry_run=True)
+    result = await mcp_server._run_procedure("deploy_readiness", dry_run=False)
 
     assert result["procedure"] == "deploy_readiness"
-    assert result["dry_run"] is True
+    assert result["dry_run"] is False
     assert result["plan_id"]
     assert captured["function"].__self__ is procedure_runner.openai_client
     assert captured["function"].__name__ == "create_plan"
-    assert captured["dry_run_during_call"] is True
+    assert captured["dry_run_during_call"] is False
     assert settings.dry_run is False
 
 

@@ -82,6 +82,8 @@ async def _generate_plan_result(name: str, proc: dict[str, Any]) -> dict[str, An
         title=proc.get("name", name),
         context=proc.get("description", f"Execute procedure: {name}"),
     )
+    if settings.dry_run:
+        return {"plan_id": uuid4().hex, "dry_run": True, "title": idea.title}
     return await asyncio.to_thread(generate_plan_for_idea, idea)
 
 
@@ -163,6 +165,8 @@ async def _run_model_step(instruction: str, context: dict[str, Any]) -> str:
         "Available step outputs (JSON):\n"
         f"{json.dumps(step_outputs, indent=2, default=str)}"
     )
+    if settings.dry_run:
+        return f"[dry_run] Would call model with prompt: {instruction[:200]}..."
     return await asyncio.to_thread(openai_client.create_plan, _MODEL_STEP_SYSTEM_PROMPT, prompt, [])
 
 
@@ -185,12 +189,14 @@ async def _run_calendar_scan(instruction: str) -> dict[str, Any]:
     now = datetime.now(tz=UTC)
     payloads = await CalendarConnector().sync(since=now)
 
-    events: list[dict[str, Any]]
-    if payloads and isinstance(payloads[0], dict) and "items" in payloads[0]:
-        items = payloads[0].get("items") or []
-        events = [event for event in items if _event_is_within_window(event, now, window_days)]
-    else:
-        events = payloads
+    events: list[dict[str, Any]] = []
+    if payloads and isinstance(payloads[0], dict):
+        first = payloads[0]
+        if first.get("dry_run") is True:
+            events = []
+        elif "items" in first:
+            items = first.get("items") or []
+            events = [event for event in items if _event_is_within_window(event, now, window_days)]
 
     return {
         "events": events,
