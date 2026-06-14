@@ -153,6 +153,47 @@ async def test_github_pr_scan_fetches_diffs_for_agent_authors(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_github_pr_scan_uses_api_url_for_github_diff_endpoints(monkeypatch):
+    import agent_pm.procedure_runner as procedure_runner
+
+    now = datetime.now(tz=UTC)
+    recent = now.isoformat().replace("+00:00", "Z")
+    calls: list[dict[str, Any]] = []
+    pulls = [
+        {
+            "number": 1,
+            "title": "Security bump",
+            "user": {"login": "dependabot[bot]"},
+            "created_at": recent,
+            "url": "https://api.github.com/repos/evalops/platform/pulls/1",
+            "diff_url": "https://github.com/evalops/platform/pull/1.diff",
+        }
+    ]
+    diffs = {
+        "https://api.github.com/repos/evalops/platform/pulls/1": "diff --git a/a.py b/a.py\n+secret = 'nope'\n",
+    }
+
+    monkeypatch.setattr(settings, "dry_run", False)
+    monkeypatch.setattr(settings, "github_token", "token")
+    monkeypatch.setattr(settings, "github_repositories", ["evalops/platform"])
+    monkeypatch.setattr(
+        procedure_runner.httpx,
+        "AsyncClient",
+        _fake_github_client_factory(pulls=pulls, diffs=diffs, calls=calls),
+    )
+
+    result = await procedure_runner._run_github_pr_scan(
+        "List PRs opened in the last 24 hours. "
+        "Filter to PRs authored by bots or agents (dependabot, codex, cursor, maestro, claude). "
+        "For each PR, fetch the diff."
+    )
+
+    assert result["count"] == 1
+    diff_call = next(call for call in calls if call["headers"]["Accept"] == "application/vnd.github.v3.diff")
+    assert diff_call["url"] == "https://api.github.com/repos/evalops/platform/pulls/1"
+
+
+@pytest.mark.asyncio
 async def test_linear_scan_respects_assignment_and_stale_rules(monkeypatch):
     import agent_pm.procedure_runner as procedure_runner
 

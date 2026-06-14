@@ -1,5 +1,5 @@
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -394,13 +394,30 @@ async def test_mcp_linear_stale_sweep_respects_team_and_state(monkeypatch):
     import agent_pm.mcp_server as mcp_server
 
     captured: dict[str, Any] = {}
+    now = datetime.now(tz=UTC)
+    issues = [
+        {
+            "id": "issue-newer",
+            "identifier": "LIN-2",
+            "title": "Newer stale issue",
+            "updatedAt": (now - timedelta(days=3)).isoformat().replace("+00:00", "Z"),
+            "dueDate": None,
+        },
+        {
+            "id": "issue-older",
+            "identifier": "LIN-1",
+            "title": "Older stale issue",
+            "updatedAt": (now - timedelta(days=5)).isoformat().replace("+00:00", "Z"),
+            "dueDate": None,
+        },
+    ]
 
     async def fake_list_issues(*, team_id=None, state=None, order_by="updatedAt", limit=50):
         captured["team_id"] = team_id
         captured["state"] = state
         captured["order_by"] = order_by
         captured["limit"] = limit
-        return []
+        return issues
 
     from agent_pm.connectors.linear import linear_connector
 
@@ -408,12 +425,13 @@ async def test_mcp_linear_stale_sweep_respects_team_and_state(monkeypatch):
 
     result = await mcp_server._linear_scan("stale_sweep", "team-123", "In Progress", 25)
 
-    assert result == {"total": 0, "stale": []}
+    assert result["total"] == 2
+    assert [issue["identifier"] for issue in result["stale"]] == ["LIN-1", "LIN-2"]
     assert captured == {
         "team_id": "team-123",
         "state": "In Progress",
         "order_by": "updatedAt",
-        "limit": 25,
+        "limit": None,
     }
 
 
@@ -457,6 +475,48 @@ async def test_mcp_github_pr_scan_author_uses_configured_repos(monkeypatch):
     assert "repo:evalops/platform" in calls[0]["params"]["q"]
     assert "repo:haasonsaas/homelab" in calls[0]["params"]["q"]
     assert "org:evalops" not in calls[0]["params"]["q"]
+
+
+@pytest.mark.asyncio
+async def test_mcp_github_pr_scan_without_author_surfaces_repo_errors(monkeypatch):
+    import httpx
+
+    import agent_pm.mcp_server as mcp_server
+
+    class _FakeResponse:
+        def __init__(self, *, status_code: int, payload: list[dict[str, Any]]) -> None:
+            self.status_code = status_code
+            self._payload = payload
+            self.request = httpx.Request("GET", "https://api.github.com/repos/evalops/platform/pulls")
+
+        def json(self) -> list[dict[str, Any]]:
+            return self._payload
+
+        def raise_for_status(self) -> None:
+            if self.status_code >= 400:
+                raise httpx.HTTPStatusError(
+                    "Client error '403 Forbidden' for url",
+                    request=self.request,
+                    response=httpx.Response(self.status_code, request=self.request),
+                )
+
+    class _FakeGitHubClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def get(self, url: str, *, headers=None, params=None, timeout=None):
+            return _FakeResponse(status_code=403, payload=[])
+
+    monkeypatch.setattr(settings, "github_token", "token")
+    monkeypatch.setattr(settings, "github_repositories", ["evalops/platform"])
+    monkeypatch.setattr(httpx, "AsyncClient", lambda: _FakeGitHubClient())
+
+    result = await mcp_server._github_pr_scan("evalops", None, "open", 20)
+
+    assert "error" in result
 
 
 @pytest.mark.asyncio

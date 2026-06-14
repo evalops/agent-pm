@@ -357,7 +357,12 @@ async def _fetch_pull_request_diff(
     pr: dict[str, Any],
     headers: dict[str, str],
 ) -> str:
-    diff_url = str(pr.get("diff_url") or f"https://api.github.com/repos/{repo}/pulls/{pr.get('number')}")
+    api_diff_url = str(pr.get("url") or f"https://api.github.com/repos/{repo}/pulls/{pr.get('number')}")
+    diff_url = str(pr.get("diff_url") or "")
+    if not diff_url or diff_url.startswith(
+        ("https://github.com/", "http://github.com/", "https://www.github.com/", "http://www.github.com/")
+    ):
+        diff_url = api_diff_url
     response = await client.get(
         diff_url,
         headers={**headers, "Accept": "application/vnd.github.v3.diff"},

@@ -119,8 +119,9 @@ async def _linear_scan(action: str, team_id: str | None, state: str | None, limi
                 team_id=team_id,
                 state=state,
                 order_by="updatedAt",
-                limit=limit,
+                limit=None,
             )
+            issues = sorted(issues, key=lambda issue: str(issue.get("updatedAt") or ""))
             # Flag stale items
             from datetime import UTC, datetime, timedelta
 
@@ -192,8 +193,8 @@ async def _github_pr_scan(org: str, author: str | None, state: str, limit: int) 
                         params={"state": state, "per_page": limit},
                         timeout=30,
                     )
-                if resp.status_code == 200:
-                    all_prs.extend(resp.json())
+                resp.raise_for_status()
+                all_prs.extend(resp.json())
             return {"prs": all_prs, "total": len(all_prs)}
     except Exception as exc:
         return {"error": str(exc)}
