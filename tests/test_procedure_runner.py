@@ -266,6 +266,9 @@ async def test_run_sentry_scan_extracts_query_from_instruction(monkeypatch):
         captured["project"] = project
         return {"data": []}
 
+    monkeypatch.setattr(settings, "dry_run", False)
+    monkeypatch.setattr(procedure_runner.sentry_connector, "_auth_token", "token")
+    monkeypatch.setattr(procedure_runner.sentry_connector, "_org_slug", "org")
     monkeypatch.setattr(procedure_runner.sentry_connector, "list_issues", fake_list_issues)
     monkeypatch.setattr(procedure_runner.sentry_connector, "error_counts", fake_error_counts)
 
@@ -276,6 +279,21 @@ async def test_run_sentry_scan_extracts_query_from_instruction(monkeypatch):
     assert captured["limit"] == 10
     assert captured["error_counts_period"] == "7d"
     assert result["query"] == "is:resolved environment:prod"
+
+
+@pytest.mark.asyncio
+async def test_run_sentry_scan_surfaces_skipped_connector_state(monkeypatch):
+    import agent_pm.procedure_runner as procedure_runner
+
+    monkeypatch.setattr(settings, "dry_run", False)
+    monkeypatch.setattr(procedure_runner.sentry_connector, "_auth_token", None)
+
+    result = await procedure_runner._run_sentry_scan("List unresolved Sentry issues.")
+
+    assert result["issues"] == []
+    assert result["count"] == 0
+    assert result["error"] == "Sentry connector is not configured."
+    assert "dry_run" not in result
 
 
 @pytest.mark.asyncio
@@ -328,7 +346,9 @@ async def test_linear_scan_respects_assignment_and_stale_rules(monkeypatch):
             return []
         return [{"createdAt": now.isoformat().replace("+00:00", "Z")}]
 
+    monkeypatch.setattr(settings, "dry_run", False)
     monkeypatch.setattr(settings, "jira_email", "me@example.com")
+    monkeypatch.setattr(procedure_runner.linear_connector, "_api_key", "token")
     monkeypatch.setattr(procedure_runner.linear_connector, "list_issues", fake_list_issues)
     monkeypatch.setattr(procedure_runner.linear_connector, "get_issue_comments", fake_get_issue_comments)
 
@@ -359,7 +379,9 @@ async def test_linear_scan_uses_configured_team_ids_when_unscoped(monkeypatch):
         captured.append(team_id)
         return [{"id": f"{team_id}-1", "identifier": f"{team_id}-1", "title": f"Issue for {team_id}"}]
 
+    monkeypatch.setattr(settings, "dry_run", False)
     monkeypatch.setattr(settings, "linear_team_ids", ["team-1", "team-2"])
+    monkeypatch.setattr(procedure_runner.linear_connector, "_api_key", "token")
     monkeypatch.setattr(procedure_runner.linear_connector, "list_issues", fake_list_issues)
 
     result = await procedure_runner._run_linear_scan("List all issues sorted by updatedAt ascending.")
@@ -370,6 +392,28 @@ async def test_linear_scan_uses_configured_team_ids_when_unscoped(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_list_linear_issues_for_scan_applies_limit_across_teams(monkeypatch):
+    import agent_pm.procedure_runner as procedure_runner
+
+    captured_limits: list[int | None] = []
+
+    async def fake_list_issues(*, team_id=None, assignee_email=None, state=None, order_by="updatedAt", limit=50):
+        captured_limits.append(limit)
+        return [
+            {"id": f"{team_id}-1", "identifier": f"{team_id}-1"},
+            {"id": f"{team_id}-2", "identifier": f"{team_id}-2"},
+        ]
+
+    monkeypatch.setattr(settings, "linear_team_ids", ["team-1", "team-2"])
+    monkeypatch.setattr(procedure_runner.linear_connector, "list_issues", fake_list_issues)
+
+    issues = await procedure_runner._list_linear_issues_for_scan(limit=3)
+
+    assert captured_limits == [3, 1]
+    assert [issue["identifier"] for issue in issues] == ["team-1-1", "team-1-2", "team-2-1"]
+
+
+@pytest.mark.asyncio
 async def test_weekly_progress_review_uses_calendar_scan(monkeypatch):
     import agent_pm.procedure_runner as procedure_runner
 
@@ -377,8 +421,9 @@ async def test_weekly_progress_review_uses_calendar_scan(monkeypatch):
     captured: dict[str, Any] = {}
 
     class _FakeCalendarConnector:
-        async def sync(self, *, since=None):
+        async def sync(self, *, since=None, until=None):
             captured["since"] = since
+            captured["until"] = until
             return [
                 {
                     "items": [
@@ -407,6 +452,7 @@ async def test_weekly_progress_review_uses_calendar_scan(monkeypatch):
     procedure = loader.load()["weekly_progress_review"]
 
     assert captured["since"] == now.replace(hour=0, minute=0, second=0, microsecond=0)
+    assert captured["until"] == captured["since"] + timedelta(days=7)
     assert result["count"] == 2
     assert procedure["steps"][0]["run"] == "calendar_scan"
     assert "calendar_overview" in procedure["steps"][4]["input"]
@@ -467,3 +513,17 @@ async def test_linear_scan_requires_configured_email_for_assigned_to_me(monkeypa
     assert result["issues"] == []
     assert result["stale"] == []
     assert result["error"] == "Linear 'assigned to me' scans require JIRA_EMAIL or GOOGLE_CALENDAR_DELEGATED_USER."
+
+
+@pytest.mark.asyncio
+async def test_linear_scan_surfaces_skipped_connector_state(monkeypatch):
+    import agent_pm.procedure_runner as procedure_runner
+
+    monkeypatch.setattr(settings, "dry_run", False)
+    monkeypatch.setattr(procedure_runner.linear_connector, "_api_key", None)
+
+    result = await procedure_runner._run_linear_scan("List all issues.")
+
+    assert result["issues"] == []
+    assert result["count"] == 0
+    assert result["error"] == "Linear connector is not configured."

@@ -179,6 +179,18 @@ async def _run_model_step(instruction: str, context: dict[str, Any]) -> str:
 async def _run_sentry_scan(instruction: str) -> dict[str, Any]:
     stats_period = _extract_stats_period(instruction, default="14d")
     query = _extract_sentry_query(instruction, default="is:unresolved")
+    skipped_result = {
+        "issues": [],
+        "count": 0,
+        "query": query,
+        "stats_period": stats_period,
+        "error_counts": {"data": []},
+    }
+    if settings.dry_run:
+        return {**skipped_result, "dry_run": True}
+    if not sentry_connector.enabled:
+        return {**skipped_result, "error": "Sentry connector is not configured."}
+
     issues = await sentry_connector.list_issues(query=query, stats_period=stats_period, limit=10)
     error_counts = await sentry_connector.error_counts(stats_period=stats_period)
     return {
@@ -194,7 +206,8 @@ async def _run_calendar_scan(instruction: str) -> dict[str, Any]:
     window_days = _extract_calendar_window_days(instruction, default=7)
     now = datetime.now(tz=UTC)
     window_start = _calendar_window_start(instruction, now)
-    payloads = await CalendarConnector().sync(since=window_start)
+    window_end = window_start + timedelta(days=window_days)
+    payloads = await CalendarConnector().sync(since=window_start, until=window_end)
 
     events: list[dict[str, Any]] = []
     if payloads and isinstance(payloads[0], dict):
@@ -218,6 +231,7 @@ async def _run_linear_scan(instruction: str) -> dict[str, Any]:
     assignee_email = _extract_linear_assignee_email(instruction)
     stale_scan = _instruction_requests_linear_stale_scan(instruction)
     oldest_updates_first = _instruction_requests_oldest_linear_updates(instruction) or stale_scan
+    stale_after_days = _extract_stale_days(instruction, default=2) if stale_scan else None
     if _instruction_requests_assigned_to_me(instruction) and not assignee_email:
         result: dict[str, Any] = {
             "issues": [],
@@ -227,7 +241,22 @@ async def _run_linear_scan(instruction: str) -> dict[str, Any]:
             "error": "Linear 'assigned to me' scans require JIRA_EMAIL or GOOGLE_CALENDAR_DELEGATED_USER.",
         }
         if stale_scan:
-            result["stale_after_days"] = _extract_stale_days(instruction, default=2)
+            result["stale_after_days"] = stale_after_days
+            result["stale"] = []
+        return result
+    if settings.dry_run or not linear_connector.enabled:
+        result = {
+            "issues": [],
+            "count": 0,
+            "state": state,
+            "assignee_email": assignee_email,
+        }
+        if settings.dry_run:
+            result["dry_run"] = True
+        else:
+            result["error"] = "Linear connector is not configured."
+        if stale_scan:
+            result["stale_after_days"] = stale_after_days
             result["stale"] = []
         return result
 
@@ -251,7 +280,6 @@ async def _run_linear_scan(instruction: str) -> dict[str, Any]:
         "assignee_email": assignee_email,
     }
     if stale_scan:
-        stale_after_days = _extract_stale_days(instruction, default=2)
         result["stale_after_days"] = stale_after_days
         result["stale"] = await _collect_stale_linear_issues(issues, stale_after_days=stale_after_days)
     return result
@@ -319,15 +347,21 @@ async def _list_linear_issues_for_scan(
 ) -> list[dict[str, Any]]:
     team_ids = [team_id] if team_id else settings.linear_team_ids or [None]
     issues: list[dict[str, Any]] = []
+    remaining = limit
     for scan_team_id in team_ids:
+        if remaining is not None and remaining <= 0:
+            break
         team_issues = await linear_connector.list_issues(
             assignee_email=assignee_email,
             team_id=scan_team_id,
             state=state,
             order_by=order_by,
-            limit=limit,
+            limit=remaining,
         )
-        issues.extend(team_issues)
+        visible_issues = team_issues if remaining is None else team_issues[:remaining]
+        issues.extend(visible_issues)
+        if remaining is not None:
+            remaining -= len(visible_issues)
     return issues
 
 

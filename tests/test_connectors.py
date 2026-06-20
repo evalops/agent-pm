@@ -80,6 +80,54 @@ async def test_calendar_connector_returns_time_window(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_calendar_connector_sync_uses_explicit_until(monkeypatch):
+    import agent_pm.connectors.calendar as calendar_module
+
+    now = datetime.now(tz=UTC)
+    captured: dict[str, Any] = {}
+
+    class _FakeResponse:
+        def json(self) -> dict[str, Any]:
+            return {"items": []}
+
+        def raise_for_status(self) -> None:
+            return None
+
+    class _FakeCalendarClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def get(self, url: str, *, headers=None, params=None, timeout=None):
+            captured["url"] = url
+            captured["headers"] = headers
+            captured["params"] = params
+            captured["timeout"] = timeout
+            return _FakeResponse()
+
+    monkeypatch.setattr(settings, "calendar_id", "calendar@example.com")
+    monkeypatch.setattr(settings, "dry_run", False)
+    connector = CalendarConnector()
+    connector._service_account_info = {"client_email": "svc@example.com"}
+
+    async def fake_get_token() -> str:
+        return "token"
+
+    monkeypatch.setattr(connector, "_get_token", fake_get_token)
+    monkeypatch.setattr(calendar_module.httpx, "AsyncClient", lambda: _FakeCalendarClient())
+
+    since = now
+    until = now + timedelta(days=30)
+    payloads = await connector.sync(since=since, until=until)
+
+    assert payloads == [{"items": []}]
+    assert captured["params"]["timeMin"] == since.isoformat()
+    assert captured["params"]["timeMax"] == until.isoformat()
+
+
+@pytest.mark.asyncio
 async def test_google_drive_connector_reports_query(monkeypatch):
     monkeypatch.setattr(settings, "google_service_account_json", None)
     monkeypatch.setattr(settings, "google_service_account_file", None)
@@ -253,6 +301,32 @@ async def test_sentry_connector_dry_run(monkeypatch):
     assert payloads[0]["error_counts"].get("dry_run") is True
 
 
+@pytest.mark.asyncio
+async def test_sentry_connector_issue_helpers_return_lists(monkeypatch):
+    connector = SentryConnector()
+    captured: list[tuple[str, dict[str, Any] | None]] = []
+
+    async def fake_get(path: str, params: dict[str, Any] | None = None) -> Any:
+        captured.append((path, params))
+        if path.endswith("/events/"):
+            return {"data": [{"id": "event-1"}]}
+        if path.endswith("/values/"):
+            return [{"value": "prod"}]
+        raise AssertionError(f"Unexpected path: {path}")
+
+    monkeypatch.setattr(connector, "_get", fake_get)
+
+    events = await connector.get_issue_events("issue-1", limit=5)
+    tags = await connector.get_issue_tag_distribution("issue-1", "environment")
+
+    assert events == [{"id": "event-1"}]
+    assert tags == [{"value": "prod"}]
+    assert captured == [
+        (f"/organizations/{connector._org_slug}/issues/issue-1/events/", {"limit": 5}),
+        (f"/organizations/{connector._org_slug}/issues/issue-1/tags/environment/values/", None),
+    ]
+
+
 # ── Procedure loader tests ────────────────────────────────────────
 
 
@@ -306,6 +380,7 @@ async def test_scheduler_run_procedure_executes_yaml_steps(monkeypatch):
     from agent_pm.scheduler import ProcedureScheduler
 
     captured: dict[str, Any] = {}
+    monkeypatch.setattr(settings, "dry_run", False)
 
     monkeypatch.setattr(
         loader,
@@ -335,6 +410,8 @@ async def test_scheduler_run_procedure_executes_yaml_steps(monkeypatch):
         captured["project"] = project
         return {"data": []}
 
+    monkeypatch.setattr(procedure_runner.sentry_connector, "_auth_token", "token")
+    monkeypatch.setattr(procedure_runner.sentry_connector, "_org_slug", "org")
     monkeypatch.setattr(procedure_runner.sentry_connector, "list_issues", fake_list_issues)
     monkeypatch.setattr(procedure_runner.sentry_connector, "error_counts", fake_error_counts)
 
@@ -419,6 +496,41 @@ async def test_mcp_list_procedures_tool():
 
 
 @pytest.mark.asyncio
+async def test_mcp_sentry_scan_surfaces_dry_run_state(monkeypatch):
+    import agent_pm.mcp_server as mcp_server
+    from agent_pm.connectors.sentry import sentry_connector
+
+    async def fail_list_issues(**kwargs):
+        raise AssertionError("scan should not run")
+
+    monkeypatch.setattr(settings, "dry_run", True)
+    monkeypatch.setattr(sentry_connector, "list_issues", fail_list_issues)
+
+    result = await mcp_server._sentry_scan("is:unresolved", "14d", 10)
+
+    assert result == {
+        "dry_run": True,
+        "issues": [],
+        "count": 0,
+        "query": "is:unresolved",
+        "stats_period": "14d",
+    }
+
+
+@pytest.mark.asyncio
+async def test_mcp_linear_scan_surfaces_disabled_connector_state(monkeypatch):
+    import agent_pm.mcp_server as mcp_server
+    from agent_pm.connectors.linear import linear_connector
+
+    monkeypatch.setattr(settings, "dry_run", False)
+    monkeypatch.setattr(linear_connector, "_api_key", None)
+
+    result = await mcp_server._linear_scan("list_issues", None, None, 25)
+
+    assert result == {"issues": [], "count": 0, "error": "Linear connector is not configured."}
+
+
+@pytest.mark.asyncio
 async def test_mcp_linear_stale_sweep_respects_team_and_state(monkeypatch):
     import agent_pm.mcp_server as mcp_server
 
@@ -451,6 +563,8 @@ async def test_mcp_linear_stale_sweep_respects_team_and_state(monkeypatch):
 
     from agent_pm.connectors.linear import linear_connector
 
+    monkeypatch.setattr(settings, "dry_run", False)
+    monkeypatch.setattr(linear_connector, "_api_key", "token")
     monkeypatch.setattr(linear_connector, "list_issues", fake_list_issues)
 
     result = await mcp_server._linear_scan("stale_sweep", "team-123", "In Progress", 25)
@@ -505,7 +619,9 @@ async def test_mcp_linear_stale_sweep_uses_configured_teams_and_full_stale_rules
 
     from agent_pm.connectors.linear import linear_connector
 
+    monkeypatch.setattr(settings, "dry_run", False)
     monkeypatch.setattr(settings, "linear_team_ids", ["team-1", "team-2"])
+    monkeypatch.setattr(linear_connector, "_api_key", "token")
     monkeypatch.setattr(linear_connector, "list_issues", fake_list_issues)
     monkeypatch.setattr(linear_connector, "get_issue_comments", fake_get_issue_comments)
 

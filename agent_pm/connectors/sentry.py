@@ -28,7 +28,7 @@ class SentryConnector(Connector):
             "Accept": "application/json",
         }
 
-    async def _get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
         if settings.dry_run or not self.enabled:
             return {"dry_run": True, "path": path, "params": params}
 
@@ -68,15 +68,17 @@ class SentryConnector(Connector):
         return await self._get(f"/organizations/{self._org_slug}/issues/{issue_id}/")
 
     async def get_issue_events(self, issue_id: str, limit: int = 10) -> list[dict[str, Any]]:
-        return await self._get(
+        result = await self._get(
             f"/organizations/{self._org_slug}/issues/{issue_id}/events/",
             {"limit": limit},
         )
+        return result if isinstance(result, list) else result.get("data", []) if isinstance(result, dict) else []
 
     async def get_issue_tag_distribution(self, issue_id: str, tag_key: str) -> list[dict[str, Any]]:
-        return await self._get(
-            f"/organizations/{self._org_slug}/issues/{issue_id}/tags/{tag_key}/",
+        result = await self._get(
+            f"/organizations/{self._org_slug}/issues/{issue_id}/tags/{tag_key}/values/",
         )
+        return result if isinstance(result, list) else result.get("data", []) if isinstance(result, dict) else []
 
     # ── events / error counts ────────────────────────────────────
 

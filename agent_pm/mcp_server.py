@@ -102,8 +102,19 @@ async def _run_procedure(name: str, dry_run: bool) -> dict[str, Any]:
 async def _sentry_scan(query: str, stats_period: str, limit: int) -> dict[str, Any]:
     """Run a Sentry issue scan."""
     from agent_pm.connectors.sentry import sentry_connector
+    from agent_pm.settings import settings
 
     try:
+        if settings.dry_run:
+            return {"dry_run": True, "issues": [], "count": 0, "query": query, "stats_period": stats_period}
+        if not sentry_connector.enabled:
+            return {
+                "issues": [],
+                "count": 0,
+                "query": query,
+                "stats_period": stats_period,
+                "error": "Sentry connector is not configured.",
+            }
         issues = await sentry_connector.list_issues(query=query, stats_period=stats_period, limit=limit)
         return {"issues": issues, "count": len(issues), "query": query}
     except Exception as exc:
@@ -118,18 +129,36 @@ async def _linear_scan(
     instruction: str = "",
 ) -> dict[str, Any]:
     """Query Linear."""
+    from agent_pm.connectors.linear import linear_connector
     from agent_pm.procedure_runner import (
         _collect_stale_linear_issues,
         _extract_stale_days,
         _list_linear_issues_for_scan,
     )
+    from agent_pm.settings import settings
 
     try:
         if action == "list_teams":
-            from agent_pm.connectors.linear import linear_connector
-
             teams = await linear_connector.list_teams()
             return {"teams": teams}
+        if settings.dry_run:
+            if action == "stale_sweep":
+                return {
+                    "dry_run": True,
+                    "total": 0,
+                    "stale_after_days": _extract_stale_days(instruction, default=2),
+                    "stale": [],
+                }
+            return {"dry_run": True, "issues": [], "count": 0}
+        if not linear_connector.enabled:
+            if action == "stale_sweep":
+                return {
+                    "total": 0,
+                    "stale_after_days": _extract_stale_days(instruction, default=2),
+                    "stale": [],
+                    "error": "Linear connector is not configured.",
+                }
+            return {"issues": [], "count": 0, "error": "Linear connector is not configured."}
         elif action == "stale_sweep":
             issues = await _list_linear_issues_for_scan(
                 team_id=team_id,
