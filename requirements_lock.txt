@@ -214,7 +214,7 @@ python-dotenv==1.2.2
     #   agent-pm
     #   pydantic-settings
     #   uvicorn
-python-multipart==0.0.27
+python-multipart==0.0.31
     # via mcp
 pytz==2025.2
     # via
