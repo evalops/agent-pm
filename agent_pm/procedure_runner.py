@@ -213,11 +213,8 @@ async def _run_calendar_scan(instruction: str) -> dict[str, Any]:
         "window_days": window_days,
         "calendar_id": settings.calendar_id,
     }
-    if settings.dry_run:
-        return skipped_result
-
     connector = CalendarConnector()
-    if not connector.enabled:
+    if not settings.dry_run and not connector.enabled:
         return {**skipped_result, "error": "Calendar connector is not configured."}
 
     payloads = await connector.sync(since=window_start, until=window_end)
