@@ -50,7 +50,7 @@ coverage==7.10.7
     # via pytest-cov
 croniter==6.0.0
     # via rq
-cryptography==46.0.7
+cryptography==48.0.1
     # via pyjwt
 distro==1.9.0
     # via openai
