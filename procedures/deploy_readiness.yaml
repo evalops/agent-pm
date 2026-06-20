@@ -1,0 +1,45 @@
+name: deploy_readiness
+description: "Cross-reference platform PRs against deploy repo — flag gaps in alerting, observability, or deployment manifests."
+schedule: "0 14 * * *"  # Daily 2pm
+steps:
+  - id: scan_platform_prs
+    run: github_pr_scan
+    input: |
+      List open PRs in evalops/platform. Note each PR's title, labels, changed files.
+      Identify PRs that introduce new endpoints, change configuration, or modify proto contracts.
+
+  - id: scan_deploy_prs
+    run: github_pr_scan
+    input: |
+      List open PRs in evalops/deploy. Note each PR's title, labels, changed files.
+      Check for monitoring/alerting changes, Kyverno policies, new service deployments.
+
+  - id: cross_reference
+    run: model
+    input: |
+      For each platform PR that introduces a new endpoint or config change:
+      - Does a corresponding deploy PR exist with updated monitoring/alerting?
+      - Are there Grafana dashboard updates, Prometheus alert rule changes, or SLO definitions?
+      - Is there a Kyverno policy update if security posture changed?
+      Flag gaps: platform changes with no deploy counterpart.
+
+  - id: sentry_pulse
+    run: sentry_scan
+    input: |
+      Check Sentry for any new error patterns in the last 24h that correlate with recent deploys.
+      Match error timestamps against deploy timestamps from GitHub releases.
+
+  - id: compose_report
+    run: model
+    input: |
+      Compose a terse report:
+      - Platform PRs needing deploy attention (missing alerting, missing policy)
+      - Sentry regressions (if any)
+      - Dependabot PRs in deploy that should be merged
+      Dry, factual, numbered. No fluff.
+
+  - id: deliver
+    run: publish_status_digest
+    with:
+      channel: "#engineering"
+      body_md: "{{report}}"

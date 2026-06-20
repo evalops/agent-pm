@@ -30,7 +30,12 @@ class CalendarConnector(Connector):
     def enabled(self) -> bool:
         return bool(settings.calendar_id and self._service_account_info)
 
-    async def sync(self, *, since: datetime | None = None) -> list[dict[str, Any]]:
+    async def sync(
+        self,
+        *,
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> list[dict[str, Any]]:
         calendar_id = settings.calendar_id
         window_days = settings.calendar_sync_window_days
         if settings.dry_run or not self.enabled:
@@ -39,6 +44,7 @@ class CalendarConnector(Connector):
                     "dry_run": True,
                     "calendar_id": calendar_id,
                     "since": since.isoformat() if since else None,
+                    "until": until.isoformat() if until else None,
                     "window_days": window_days,
                 }
             ]
@@ -47,7 +53,7 @@ class CalendarConnector(Connector):
         headers = {"Authorization": f"Bearer {token}"}
         lower_bound = datetime.now(tz=UTC) - timedelta(days=window_days)
         time_min = (since if since and since > lower_bound else lower_bound).isoformat()
-        time_max = (datetime.now(tz=UTC) + timedelta(days=window_days)).isoformat()
+        time_max = (until if until else datetime.now(tz=UTC) + timedelta(days=window_days)).isoformat()
         params = {"timeMin": time_min, "timeMax": time_max, "singleEvents": "true", "orderBy": "startTime"}
         async with httpx.AsyncClient() as client:
             response = await client.get(

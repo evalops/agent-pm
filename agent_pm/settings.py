@@ -1,11 +1,15 @@
 """Application settings loaded from environment variables."""
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_dry_run_override: ContextVar[bool | None] = ContextVar("agent_pm_dry_run_override", default=None)
 
 
 class Settings(BaseSettings):
@@ -21,6 +25,12 @@ class Settings(BaseSettings):
         description="Optional when DRY_RUN=true; required for live OpenAI access.",
     )
     github_token: str | None = Field(None, alias="GITHUB_TOKEN")
+    github_repositories: list[str] = Field(default_factory=list, alias="GITHUB_REPOSITORIES")
+    linear_api_key: str | None = Field(None, alias="LINEAR_API_KEY")
+    linear_team_ids: list[str] = Field(default_factory=list, alias="LINEAR_TEAM_IDS")
+    sentry_auth_token: str | None = Field(None, alias="SENTRY_AUTH_TOKEN")
+    sentry_org_slug: str | None = Field(None, alias="SENTRY_ORG_SLUG")
+    sentry_base_url: str | None = Field(None, alias="SENTRY_BASE_URL")
     jira_base_url: str | None = Field(None, alias="JIRA_BASE_URL")
     jira_api_token: str | None = Field(None, alias="JIRA_API_TOKEN")
     jira_email: str | None = Field(None, alias="JIRA_EMAIL")
@@ -33,6 +43,21 @@ class Settings(BaseSettings):
     plugin_secret_path: Path | None = Field(None, alias="PLUGIN_SECRET_PATH")
     procedure_dir: Path = Field(Path("./procedures"), alias="PROCEDURE_DIR")
     allowed_projects: list[str] = Field(default_factory=list, alias="ALLOWED_PROJECTS")
+
+    def __getattribute__(self, name: str):
+        if name == "dry_run":
+            override = _dry_run_override.get()
+            if override is not None:
+                return override
+        return super().__getattribute__(name)
+
+    @contextmanager
+    def override_dry_run(self, value: bool):
+        token = _dry_run_override.set(value)
+        try:
+            yield
+        finally:
+            _dry_run_override.reset(token)
 
     @field_validator("google_calendar_scopes", mode="before")
     @classmethod
@@ -54,7 +79,12 @@ class Settings(BaseSettings):
         return value
 
     @field_validator(
-        "github_repositories", "slack_sync_channels", "gmail_label_filter", "notion_database_ids", mode="before"
+        "github_repositories",
+        "linear_team_ids",
+        "slack_sync_channels",
+        "gmail_label_filter",
+        "notion_database_ids",
+        mode="before",
     )
     @classmethod
     def _parse_string_lists(cls, value):
@@ -130,7 +160,6 @@ class Settings(BaseSettings):
     enable_opentelemetry: bool = Field(False, alias="ENABLE_OPENTELEMETRY")
     otel_service_name: str = Field("agent-pm", alias="OTEL_SERVICE_NAME")
     otel_exporter_endpoint: str | None = Field(None, alias="OTEL_EXPORTER_ENDPOINT")
-    github_repositories: list[str] = Field(default_factory=list, alias="GITHUB_REPOSITORIES")
     github_sync_interval_seconds: int = Field(900, alias="GITHUB_SYNC_INTERVAL_SECONDS")
     gmail_service_account_json: str | None = Field(None, alias="GMAIL_SERVICE_ACCOUNT_JSON")
     gmail_service_account_file: Path | None = Field(None, alias="GMAIL_SERVICE_ACCOUNT_FILE")

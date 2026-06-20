@@ -1,0 +1,19 @@
+# Procedure schedules — 5-field cron (minute hour dom month dow)
+# Runs inside the Agent PM process via ProcedureScheduler.
+# Comment out or remove entries to disable.
+
+weekly_progress_review:
+  cron: "0 9 * * 1"       # Monday 9am UTC
+  description: "Calendar → Sentry → Linear → GitHub sweep + Slack digest"
+
+dependabot_triage:
+  cron: "0 10 * * *"      # Daily 10am UTC
+  description: "Scan all open Dependabot PRs, auto-merge green security bumps"
+
+agent_pr_security_scan:
+  cron: "0 */4 * * *"     # Every 4 hours
+  description: "Scan recent agent PRs for leaked secrets, unsafe patterns, missing authz"
+
+deploy_readiness:
+  cron: "0 14 * * *"      # Daily 2pm UTC
+  description: "Cross-reference platform PRs against deploy repo for monitoring/alerting gaps"

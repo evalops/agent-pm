@@ -1,0 +1,44 @@
+name: weekly_progress_review
+description: "Multi-source progress sweep — Calendar → Sentry → Linear → GitHub → Slack digest."
+schedule: "0 9 * * 1"  # Monday 9am
+steps:
+  - id: calendar_overview
+    run: calendar_scan
+    input: |
+      List upcoming calendar events for this week.
+      Flag reviews, launches, or conflicts that could change priority this week.
+
+  - id: sentry_check
+    run: sentry_scan
+    input: |
+      List unresolved Sentry issues (is:unresolved, sort=freq, 14d).
+      Return a summary: count of unresolved, top issue titles, any regressions.
+
+  - id: linear_stale_scan
+    run: linear_scan
+    input: |
+      Pull all issues assigned to me, sorted by updatedAt ascending.
+      Flag items: due date blown, last updated > 2 days ago, "In Progress" without recent comments.
+      Return a list of stale items with IDs and recommended actions.
+
+  - id: github_pr_sweep
+    run: github_pr_scan
+    input: |
+      Scan open PRs across evalops repos and haasonsaas/homelab.
+      Check CI status, mergeability, review state.
+      Flag: green-but-unmerged, stale, security bumps (dependabot with GHSA refs).
+      Return PR summary with merge recommendations.
+
+  - id: compose_digest
+    run: model
+    input: |
+      Compose a Slack digest from calendar_overview, sentry_check, linear_stale_scan, and github_pr_sweep.
+      Format as bulleted sections: Calendar, Sentry, Linear, GitHub PRs.
+      Keep it terse — no marketing language, no self-narration.
+      Include concrete next actions (merge PR #X, close issue #Y).
+
+  - id: deliver
+    run: publish_status_digest
+    with:
+      channel: "#engineering"
+      body_md: "{{digest}}"

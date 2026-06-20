@@ -14,7 +14,7 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent_pm.agent_sdk import planner_tools_default_enabled, reload_agent_profiles
+from agent_pm.agent_sdk import reload_agent_profiles
 from agent_pm.alignment.log import (
     fetch_alignment_events,
     get_alignment_summary,
@@ -54,7 +54,7 @@ from agent_pm.observability.structured import (
 )
 from agent_pm.observability.traces import list_traces as list_trace_files
 from agent_pm.observability.traces import persist_trace, summarize_trace
-from agent_pm.planner import generate_plan
+from agent_pm.planner import generate_plan_for_idea
 from agent_pm.plugins import plugin_registry
 from agent_pm.prd.changelog import generate_changelog
 from agent_pm.prd.versions import (
@@ -65,12 +65,12 @@ from agent_pm.prd.versions import (
     get_version_history,
 )
 from agent_pm.procedures import loader as procedure_loader
+from agent_pm.scheduler import scheduler
 from agent_pm.settings import settings
 from agent_pm.storage import syncs as sync_storage
 from agent_pm.storage.database import PRDVersion, get_db
 from agent_pm.storage.tasks import TaskStatus, get_task_queue
 from agent_pm.tasks.sync import PeriodicSyncManager, create_default_sync_manager
-from agent_pm.tools import registry
 
 
 @asynccontextmanager
@@ -84,10 +84,18 @@ async def lifespan(_app: FastAPI):
     except Exception:  # pragma: no cover - defensive startup logging
         logger.exception("Failed to start periodic sync manager")
         _sync_manager = None
+    try:
+        await scheduler.start()
+    except Exception:  # pragma: no cover - defensive startup logging
+        logger.exception("Failed to start procedure scheduler")
     logger.info("Agent PM service started")
     try:
         yield
     finally:
+        try:
+            await scheduler.stop()
+        except Exception:  # pragma: no cover - defensive shutdown logging
+            logger.exception("Failed to stop procedure scheduler")
         if _sync_manager is not None:
             await _sync_manager.stop()
             _sync_manager = None
@@ -324,41 +332,9 @@ async def install_plugin_endpoint(request: PluginInstallRequest, _admin_key: Adm
 
 async def _plan_impl(idea: Idea) -> dict[str, Any]:
     trace = TraceMemory()
-    defaults = {
-        "requirements": [
-            "Generate PRD using standard template",
-            "Create Jira epics and stories automatically",
-            "Publish Slack status digest",
-        ],
-        "acceptance": [
-            "PRD includes context, goals, non-goals, ACs",
-            "Ticket plan generated with action items",
-            "Status digest ready for stakeholders",
-        ],
-        "goals": ["Ship MVP", "Lower time-to-spec", "Reduce PM toil"],
-        "nongoals": ["Rewrite infrastructure"],
-        "risks": ["Hallucinated scope", "Missed dependency"],
-        "users": "Engineers, PMs, stakeholders",
-    }
-    default_tool_flag = settings.agent_tools_enabled or planner_tools_default_enabled()
-    enable_tools = default_tool_flag if idea.enable_tools is None else idea.enable_tools
-    response_tools = registry.as_openai_tools() if enable_tools else []
 
     try:
-        result = generate_plan(
-            title=idea.title,
-            context=idea.context or "",
-            constraints=idea.constraints,
-            requirements=defaults["requirements"],
-            acceptance=defaults["acceptance"],
-            goals=defaults["goals"],
-            nongoals=defaults["nongoals"],
-            risks=defaults["risks"],
-            users=defaults["users"],
-            trace=trace,
-            tools=response_tools,
-            enable_tools=bool(enable_tools),
-        )
+        result = generate_plan_for_idea(idea, trace=trace)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     trace_path = persist_trace(idea.title, trace)

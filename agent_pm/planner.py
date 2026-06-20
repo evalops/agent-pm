@@ -3,12 +3,20 @@
 import json
 import logging
 from collections import deque
+from uuid import uuid4
 
 from . import embeddings
-from .agent_sdk import CriticReview, PRDPlan, run_critic_agent, run_planner_agent
+from .agent_sdk import (
+    CriticReview,
+    PRDPlan,
+    planner_tools_default_enabled,
+    run_critic_agent,
+    run_planner_agent,
+)
 from .alignment.log import record_alignment_event
 from .clients import openai_client, slack_client
 from .memory import TraceMemory, vector_memory
+from .models import Idea
 from .observability.metrics import (
     record_alignment_notification,
     record_dspy_guidance,
@@ -316,6 +324,52 @@ def _maybe_get_dspy_guidance(title: str, context: str, constraints: list[str]) -
         return ""
 
 
+def generate_plan_for_idea(
+    idea: Idea,
+    *,
+    trace: TraceMemory | None = None,
+) -> dict[str, str]:
+    defaults = {
+        "requirements": [
+            "Generate PRD using standard template",
+            "Create Jira epics and stories automatically",
+            "Publish Slack status digest",
+        ],
+        "acceptance": [
+            "PRD includes context, goals, non-goals, ACs",
+            "Ticket plan generated with action items",
+            "Status digest ready for stakeholders",
+        ],
+        "goals": ["Ship MVP", "Lower time-to-spec", "Reduce PM toil"],
+        "nongoals": ["Rewrite infrastructure"],
+        "risks": ["Hallucinated scope", "Missed dependency"],
+        "users": "Engineers, PMs, stakeholders",
+    }
+    planner_trace = trace if trace is not None else TraceMemory()
+    default_tool_flag = settings.agent_tools_enabled or planner_tools_default_enabled()
+    enable_tools = default_tool_flag if idea.enable_tools is None else idea.enable_tools
+    if enable_tools:
+        from .tools import registry
+
+        response_tools = registry.as_openai_tools()
+    else:
+        response_tools = []
+    return generate_plan(
+        title=idea.title,
+        context=idea.context or "",
+        constraints=idea.constraints,
+        requirements=defaults["requirements"],
+        acceptance=defaults["acceptance"],
+        goals=defaults["goals"],
+        nongoals=defaults["nongoals"],
+        risks=defaults["risks"],
+        users=defaults["users"],
+        trace=planner_trace,
+        tools=response_tools,
+        enable_tools=bool(enable_tools),
+    )
+
+
 def generate_plan(
     title: str,
     context: str,
@@ -330,6 +384,7 @@ def generate_plan(
     tools: list[dict[str, object]],
     enable_tools: bool,
 ) -> dict[str, str]:
+    plan_id = uuid4().hex
     constraint_list = constraints or []
     user_prompt = build_user_prompt(title, context, constraint_list)
     agent_prompt = (
@@ -501,6 +556,7 @@ def generate_plan(
         }
     )
     result = {
+        "plan_id": plan_id,
         "prd_markdown": prd,
         "raw_plan": text,
         "status_digest": digest,
@@ -527,4 +583,10 @@ def generate_plan(
     return result
 
 
-__all__ = ["generate_plan", "build_user_prompt", "SYSTEM_PROMPT", "build_status_digest"]
+__all__ = [
+    "generate_plan",
+    "generate_plan_for_idea",
+    "build_user_prompt",
+    "SYSTEM_PROMPT",
+    "build_status_digest",
+]
