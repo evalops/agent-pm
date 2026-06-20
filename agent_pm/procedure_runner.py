@@ -207,7 +207,20 @@ async def _run_calendar_scan(instruction: str) -> dict[str, Any]:
     now = datetime.now(tz=UTC)
     window_start = _calendar_window_start(instruction, now)
     window_end = window_start + timedelta(days=window_days)
-    payloads = await CalendarConnector().sync(since=window_start, until=window_end)
+    skipped_result = {
+        "events": [],
+        "count": 0,
+        "window_days": window_days,
+        "calendar_id": settings.calendar_id,
+    }
+    if settings.dry_run:
+        return skipped_result
+
+    connector = CalendarConnector()
+    if not connector.enabled:
+        return {**skipped_result, "error": "Calendar connector is not configured."}
+
+    payloads = await connector.sync(since=window_start, until=window_end)
 
     events: list[dict[str, Any]] = []
     if payloads and isinstance(payloads[0], dict):
@@ -218,12 +231,7 @@ async def _run_calendar_scan(instruction: str) -> dict[str, Any]:
             items = first.get("items") or []
             events = [event for event in items if _event_is_within_window(event, window_start, window_days)]
 
-    return {
-        "events": events,
-        "count": len(events),
-        "window_days": window_days,
-        "calendar_id": settings.calendar_id,
-    }
+    return {**skipped_result, "events": events, "count": len(events)}
 
 
 async def _run_linear_scan(instruction: str) -> dict[str, Any]:
@@ -292,15 +300,22 @@ async def _run_github_pr_scan(instruction: str) -> dict[str, Any]:
     include_agent_authors = _instruction_requests_agent_authors(instruction)
     fetch_diffs = _instruction_requests_pr_diffs(instruction)
 
-    if settings.dry_run or not settings.github_token or not repos:
+    skipped_result = {
+        "prs": [],
+        "count": 0,
+        "repositories": repos,
+        "author": author,
+        "include_agent_authors": include_agent_authors,
+        "last_hours": hours,
+        "fetch_diffs": fetch_diffs,
+    }
+    if settings.dry_run:
         return {
             "dry_run": True,
-            "repositories": repos,
-            "author": author,
-            "include_agent_authors": include_agent_authors,
-            "last_hours": hours,
-            "fetch_diffs": fetch_diffs,
+            **skipped_result,
         }
+    if not settings.github_token or not repos:
+        return {**skipped_result, "error": "GitHub PR scan is not configured."}
 
     headers = {
         "Authorization": f"Bearer {settings.github_token}",

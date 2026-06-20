@@ -109,6 +109,22 @@ async def test_github_pr_scan_merges_evalops_defaults_with_explicit_repo(monkeyp
 
 
 @pytest.mark.asyncio
+async def test_github_pr_scan_surfaces_missing_configuration(monkeypatch):
+    import agent_pm.procedure_runner as procedure_runner
+
+    monkeypatch.setattr(settings, "dry_run", False)
+    monkeypatch.setattr(settings, "github_token", None)
+    monkeypatch.setattr(settings, "github_repositories", ["evalops/platform"])
+
+    result = await procedure_runner._run_github_pr_scan("Scan open PRs across evalops repos.")
+
+    assert result["prs"] == []
+    assert result["count"] == 0
+    assert result["error"] == "GitHub PR scan is not configured."
+    assert "dry_run" not in result
+
+
+@pytest.mark.asyncio
 async def test_github_pr_scan_paginates_all_open_pr_pages(monkeypatch):
     import agent_pm.procedure_runner as procedure_runner
 
@@ -421,6 +437,10 @@ async def test_weekly_progress_review_uses_calendar_scan(monkeypatch):
     captured: dict[str, Any] = {}
 
     class _FakeCalendarConnector:
+        @property
+        def enabled(self) -> bool:
+            return True
+
         async def sync(self, *, since=None, until=None):
             captured["since"] = since
             captured["until"] = until
@@ -456,6 +476,23 @@ async def test_weekly_progress_review_uses_calendar_scan(monkeypatch):
     assert result["count"] == 2
     assert procedure["steps"][0]["run"] == "calendar_scan"
     assert "calendar_overview" in procedure["steps"][4]["input"]
+
+
+@pytest.mark.asyncio
+async def test_run_calendar_scan_surfaces_missing_configuration(monkeypatch):
+    import agent_pm.procedure_runner as procedure_runner
+
+    monkeypatch.setattr(settings, "dry_run", False)
+    monkeypatch.setattr(settings, "calendar_id", None)
+    monkeypatch.setattr(settings, "google_service_account_json", None)
+    monkeypatch.setattr(settings, "google_service_account_file", None)
+
+    result = await procedure_runner._run_calendar_scan("List upcoming calendar events for this week.")
+
+    assert result["events"] == []
+    assert result["count"] == 0
+    assert result["error"] == "Calendar connector is not configured."
+    assert "dry_run" not in result
 
 
 @pytest.mark.asyncio
