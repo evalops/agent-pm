@@ -182,7 +182,7 @@ async def _github_pr_scan(org: str, author: str | None, state: str, limit: int) 
     from agent_pm.settings import settings
 
     try:
-        if settings.dry_run or not settings.github_token:
+        if settings.dry_run:
             return {
                 "dry_run": True,
                 "prs": [],
@@ -192,6 +192,17 @@ async def _github_pr_scan(org: str, author: str | None, state: str, limit: int) 
                 "author": author,
                 "state": state,
                 "limit": limit,
+            }
+        if not settings.github_token:
+            return {
+                "prs": [],
+                "total": 0,
+                "org": org,
+                "repositories": settings.github_repositories or [],
+                "author": author,
+                "state": state,
+                "limit": limit,
+                "error": "GitHub PR scan is not configured.",
             }
 
         # Use the existing GitHub connector
@@ -205,31 +216,48 @@ async def _github_pr_scan(org: str, author: str | None, state: str, limit: int) 
         params: dict[str, Any] = {"per_page": limit, "state": state}
         query_parts = ["is:pr", f"state:{state}"]
         if author:
+            from agent_pm.procedure_runner import _github_author_search_candidates
+
             if repos:
                 query_parts.extend(f"repo:{repo}" for repo in repos)
             else:
                 query_parts.append(f"org:{org}")
-            query_parts.append(f"author:{author}")
-            params["q"] = " ".join(query_parts)
             all_items: list[dict[str, Any]] = []
-            page = 1
+            total_count = 0
+            seen_items: set[tuple[str, Any]] = set()
             async with httpx.AsyncClient() as client:
-                while True:
-                    page_params = {**params, "page": page}
-                    resp = await client.get(
-                        "https://api.github.com/search/issues",
-                        headers=headers,
-                        params=page_params,
-                        timeout=30,
-                    )
-                    resp.raise_for_status()
-                    data = resp.json()
-                    items = data.get("items", [])
-                    all_items.extend(items)
-                    if len(items) < params["per_page"] or len(all_items) >= limit:
+                for author_candidate in _github_author_search_candidates(author):
+                    page = 1
+                    while True:
+                        page_params = {
+                            **params,
+                            "page": page,
+                            "q": " ".join([*query_parts, f"author:{author_candidate}"]),
+                        }
+                        resp = await client.get(
+                            "https://api.github.com/search/issues",
+                            headers=headers,
+                            params=page_params,
+                            timeout=30,
+                        )
+                        resp.raise_for_status()
+                        data = resp.json()
+                        items = data.get("items", [])
+                        total_count += int(data.get("total_count", 0))
+                        for item in items:
+                            item_key = (str(item.get("repository_url", "")), item.get("number"))
+                            if item_key in seen_items:
+                                continue
+                            seen_items.add(item_key)
+                            all_items.append(item)
+                            if len(all_items) >= limit:
+                                break
+                        if len(items) < params["per_page"] or len(all_items) >= limit:
+                            break
+                        page += 1
+                    if len(all_items) >= limit:
                         break
-                    page += 1
-            return {"prs": all_items[:limit], "total": data.get("total_count", 0)}
+            return {"prs": all_items[:limit], "total": total_count}
         else:
             from agent_pm.procedure_runner import _fetch_repository_pull_requests
 

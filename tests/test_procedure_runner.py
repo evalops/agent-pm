@@ -125,7 +125,7 @@ async def test_github_pr_scan_surfaces_missing_configuration(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_github_pr_scan_paginates_all_open_pr_pages(monkeypatch):
+async def test_github_pr_scan_limits_each_repository_fetch(monkeypatch):
     import agent_pm.procedure_runner as procedure_runner
 
     pages = {
@@ -163,8 +163,9 @@ async def test_github_pr_scan_paginates_all_open_pr_pages(monkeypatch):
 
     result = await procedure_runner._run_github_pr_scan("Scan open PRs across evalops repos.")
 
-    assert result["count"] == 21
-    assert [call["params"]["page"] for call in calls] == [1, 2]
+    assert result["count"] == 20
+    assert [pr["number"] for pr in result["prs"]] == list(range(1, 21))
+    assert [call["params"]["page"] for call in calls] == [1]
 
 
 @pytest.mark.asyncio
@@ -466,6 +467,7 @@ async def test_weekly_progress_review_uses_calendar_scan(monkeypatch):
                 }
             ]
 
+    monkeypatch.setattr(settings, "dry_run", False)
     monkeypatch.setattr(procedure_runner, "CalendarConnector", lambda: _FakeCalendarConnector())
 
     result = await procedure_runner._run_calendar_scan("List upcoming calendar events for this week.")
@@ -493,6 +495,21 @@ async def test_run_calendar_scan_surfaces_missing_configuration(monkeypatch):
     assert result["count"] == 0
     assert result["error"] == "Calendar connector is not configured."
     assert "dry_run" not in result
+
+
+@pytest.mark.asyncio
+async def test_run_calendar_scan_marks_dry_run(monkeypatch):
+    import agent_pm.procedure_runner as procedure_runner
+
+    monkeypatch.setattr(settings, "dry_run", True)
+    monkeypatch.setattr(settings, "calendar_id", "calendar@example.com")
+
+    result = await procedure_runner._run_calendar_scan("List upcoming calendar events for this week.")
+
+    assert result["events"] == []
+    assert result["count"] == 0
+    assert result["dry_run"] is True
+    assert "error" not in result
 
 
 @pytest.mark.asyncio
@@ -526,6 +543,37 @@ async def test_execute_procedure_returns_step_outputs(monkeypatch):
     assert result["calendar_overview"] == {"count": 2, "events": [{"id": "evt-1"}]}
     assert result["compose_digest"] == "Digest body"
     assert result["digest"] == "Digest body"
+
+
+@pytest.mark.asyncio
+async def test_execute_procedure_skips_steps_that_require_approval(monkeypatch):
+    import agent_pm.procedure_runner as procedure_runner
+
+    procedure = {
+        "name": "idea_to_prd_to_tickets",
+        "description": "Draft a PRD and wait for approval before notifying stakeholders.",
+        "steps": [
+            {"id": "draft_prd", "run": "model"},
+            {"id": "schedule_review", "run": "schedule_review_event", "when": "approved"},
+        ],
+    }
+    executed_steps: list[str] = []
+
+    async def fake_execute_step(step: dict[str, Any], context: dict[str, Any]) -> Any:
+        executed_steps.append(step["id"])
+        if step["id"] == "draft_prd":
+            return "Draft PRD"
+        raise AssertionError("Approved-only steps should be skipped without explicit approval")
+
+    monkeypatch.setattr(settings, "dry_run", False)
+    monkeypatch.setattr(procedure_runner.loader, "load", lambda: {"idea_to_prd_to_tickets": procedure})
+    monkeypatch.setattr(procedure_runner.guardrail_context, "approved", False)
+    monkeypatch.setattr(procedure_runner, "_execute_step", fake_execute_step)
+
+    result = await procedure_runner.execute_procedure("idea_to_prd_to_tickets")
+
+    assert executed_steps == ["draft_prd"]
+    assert result["schedule_review"] == {"skipped": True, "when": "approved"}
 
 
 @pytest.mark.asyncio

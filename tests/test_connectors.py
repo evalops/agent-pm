@@ -642,7 +642,7 @@ async def test_mcp_linear_stale_sweep_uses_configured_teams_and_full_stale_rules
 
 
 @pytest.mark.asyncio
-async def test_mcp_github_pr_scan_author_uses_configured_repos(monkeypatch):
+async def test_mcp_github_pr_scan_author_expands_bot_login_for_configured_repos(monkeypatch):
     import httpx
 
     import agent_pm.mcp_server as mcp_server
@@ -668,6 +668,18 @@ async def test_mcp_github_pr_scan_author_uses_configured_repos(monkeypatch):
 
         async def get(self, url: str, *, headers=None, params=None, timeout=None):
             calls.append({"url": url, "headers": headers, "params": params, "timeout": timeout})
+            if "author:dependabot[bot]" in params["q"]:
+                return _FakeResponse(
+                    payload={
+                        "items": [
+                            {
+                                "number": 17,
+                                "repository_url": "https://api.github.com/repos/evalops/platform",
+                            }
+                        ],
+                        "total_count": 1,
+                    }
+                )
             return _FakeResponse(payload={"items": [], "total_count": 0})
 
     monkeypatch.setattr(settings, "dry_run", False)
@@ -677,15 +689,17 @@ async def test_mcp_github_pr_scan_author_uses_configured_repos(monkeypatch):
 
     result = await mcp_server._github_pr_scan("evalops", "dependabot", "open", 20)
 
-    assert result == {"prs": [], "total": 0}
-    assert calls[0]["url"] == "https://api.github.com/search/issues"
-    assert "repo:evalops/platform" in calls[0]["params"]["q"]
-    assert "repo:haasonsaas/homelab" in calls[0]["params"]["q"]
-    assert "org:evalops" not in calls[0]["params"]["q"]
+    assert result["prs"] == [{"number": 17, "repository_url": "https://api.github.com/repos/evalops/platform"}]
+    assert result["total"] == 1
+    assert all(call["url"] == "https://api.github.com/search/issues" for call in calls)
+    assert all("repo:evalops/platform" in call["params"]["q"] for call in calls)
+    assert all("repo:haasonsaas/homelab" in call["params"]["q"] for call in calls)
+    assert all("org:evalops" not in call["params"]["q"] for call in calls)
+    assert any("author:dependabot[bot]" in call["params"]["q"] for call in calls)
 
 
 @pytest.mark.asyncio
-async def test_mcp_github_pr_scan_without_token_returns_empty_dry_run(monkeypatch):
+async def test_mcp_github_pr_scan_without_token_surfaces_configuration_error(monkeypatch):
     import httpx
 
     import agent_pm.mcp_server as mcp_server
@@ -698,7 +712,6 @@ async def test_mcp_github_pr_scan_without_token_returns_empty_dry_run(monkeypatc
     result = await mcp_server._github_pr_scan("evalops", "dependabot", "open", 20)
 
     assert result == {
-        "dry_run": True,
         "prs": [],
         "total": 0,
         "org": "evalops",
@@ -706,6 +719,7 @@ async def test_mcp_github_pr_scan_without_token_returns_empty_dry_run(monkeypatc
         "author": "dependabot",
         "state": "open",
         "limit": 20,
+        "error": "GitHub PR scan is not configured.",
     }
 
 

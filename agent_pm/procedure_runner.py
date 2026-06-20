@@ -13,6 +13,7 @@ from uuid import uuid4
 
 import httpx
 
+from agent_pm.api.guardrails import guardrail_context
 from agent_pm.clients.calendar_client import calendar_client
 from agent_pm.clients.jira_client import jira_client
 from agent_pm.clients.openai_client import openai_client
@@ -44,6 +45,7 @@ _DEFAULT_GITHUB_REPOSITORIES = [
     "evalops/deploy",
     "evalops/maestro-internal",
 ]
+_DEFAULT_GITHUB_PR_SCAN_LIMIT = 20
 _MODEL_STEP_SYSTEM_PROMPT = (
     "You are executing an operational procedure. Follow the instruction exactly, use the"
     " provided step outputs as source material, and return concise markdown or plain text."
@@ -76,7 +78,10 @@ async def execute_procedure(name: str, *, dry_run: bool = False) -> dict[str, An
 
         for step in steps:
             step_id = step.get("id") or step.get("run") or f"step_{len(context)}"
-            result = await _execute_step(step, context)
+            if _step_condition_satisfied(step):
+                result = await _execute_step(step, context)
+            else:
+                result = _skipped_step_result(step)
             context[step_id] = result
             _store_step_aliases(step_id, result, context)
 
@@ -91,6 +96,25 @@ async def _generate_plan_result(name: str, proc: dict[str, Any]) -> dict[str, An
     if settings.dry_run:
         return {"plan_id": uuid4().hex, "dry_run": True, "title": idea.title}
     return await asyncio.to_thread(generate_plan_for_idea, idea)
+
+
+def _step_condition_satisfied(step: dict[str, Any]) -> bool:
+    when = step.get("when")
+    if when is None:
+        return True
+    if isinstance(when, bool):
+        return when
+    if isinstance(when, str) and when.strip().lower() == "approved":
+        return guardrail_context.approved
+    return bool(when)
+
+
+def _skipped_step_result(step: dict[str, Any]) -> dict[str, Any]:
+    result = {"skipped": True}
+    when = step.get("when")
+    if when is not None:
+        result["when"] = when
+    return result
 
 
 async def _execute_step(step: dict[str, Any], context: dict[str, Any]) -> Any:
@@ -213,8 +237,10 @@ async def _run_calendar_scan(instruction: str) -> dict[str, Any]:
         "window_days": window_days,
         "calendar_id": settings.calendar_id,
     }
+    if settings.dry_run:
+        return {**skipped_result, "dry_run": True}
     connector = CalendarConnector()
-    if not settings.dry_run and not connector.enabled:
+    if not connector.enabled:
         return {**skipped_result, "error": "Calendar connector is not configured."}
 
     payloads = await connector.sync(since=window_start, until=window_end)
@@ -327,6 +353,7 @@ async def _run_github_pr_scan(instruction: str) -> dict[str, Any]:
                 headers,
                 state="open",
                 per_page=20,
+                max_results=_DEFAULT_GITHUB_PR_SCAN_LIMIT,
             )
             for pr in repo_pulls:
                 if _include_pull_request(
@@ -654,6 +681,14 @@ def _normalize_github_login(login: str) -> str:
     if normalized.endswith("[bot]"):
         normalized = normalized[:-5]
     return normalized
+
+
+def _github_author_search_candidates(author: str) -> list[str]:
+    normalized = _normalize_github_login(author)
+    candidates = [str(author).strip(), normalized]
+    if _is_agent_login(normalized):
+        candidates.append(f"{normalized}[bot]")
+    return list(dict.fromkeys(candidate for candidate in candidates if candidate))
 
 
 def _is_agent_login(login: str) -> bool:
