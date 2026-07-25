@@ -14,12 +14,11 @@ from .agent_sdk import (
     run_planner_agent,
 )
 from .alignment.log import record_alignment_event
-from .clients import openai_client, slack_client
+from .clients import slack_client
 from .memory import TraceMemory, vector_memory
 from .models import Idea
 from .observability.metrics import (
     record_alignment_notification,
-    record_dspy_guidance,
     record_guardrail_rejection,
     record_planner_request,
     record_revisions,
@@ -43,8 +42,6 @@ def build_status_digest(
     return f"*{title}*\nContext: {context or 'N/A'}\nGoals:\n{goal_lines}\nNext Steps:\n{req_lines}\nRisks: {risk_text}"
 
 
-SYSTEM_PROMPT = """You are an exacting Product Manager agent.\nDeliverables:\n1) A crisp PRD (use our template).\n2) A set of tickets with summaries and ACs.\nKeep clarifying questions minimal and only when blocking. Never invent external facts."""
-
 logger = logging.getLogger(__name__)
 
 REVISION_LIMIT = 1
@@ -54,14 +51,6 @@ GOAL_ALIGNMENT_SIMILARITY_THRESHOLD = 0.7
 _ALIGNMENT_HISTORY_MAX = 100
 _alignment_history: deque[tuple[str, str]] = deque(maxlen=_ALIGNMENT_HISTORY_MAX)
 _alignment_history_set: set[tuple[str, str]] = set()
-
-
-def build_user_prompt(title: str, context: str, constraints: list[str] | None = None) -> str:
-    constraints = constraints or []
-    constraint_text = "\n".join(f"- {c}" for c in constraints)
-    return (
-        f"Turn this idea into a PRD + ticket plan:\nTitle: {title}\nContext: {context}\nConstraints:\n{constraint_text}"
-    )
 
 
 def build_revision_prompt(
@@ -295,35 +284,6 @@ def _notify_alignment(
         return status, metadata
 
 
-def _maybe_get_dspy_guidance(title: str, context: str, constraints: list[str]) -> str:
-    if not settings.use_dspy:
-        record_dspy_guidance("disabled")
-        return ""
-
-    if not settings.openai_api_key:
-        if settings.dry_run:
-            logger.info("DSPy guidance skipped: running in dry-run mode without OPENAI_API_KEY")
-        else:
-            logger.warning("DSPy guidance skipped: OPENAI_API_KEY is not configured")
-        record_dspy_guidance("skipped")
-        return ""
-
-    from . import dspy_program
-
-    try:
-        record_dspy_guidance("attempted")
-        guidance = dspy_program.compile_brief(title, context, constraints)
-        if guidance:
-            record_dspy_guidance("succeeded")
-        else:
-            record_dspy_guidance("empty")
-        return guidance
-    except RuntimeError as exc:  # pragma: no cover - optional dependency path
-        logger.warning("DSPy guidance disabled: %s", exc)
-        record_dspy_guidance("failed")
-        return ""
-
-
 def generate_plan_for_idea(
     idea: Idea,
     *,
@@ -348,12 +308,6 @@ def generate_plan_for_idea(
     planner_trace = trace if trace is not None else TraceMemory()
     default_tool_flag = settings.agent_tools_enabled or planner_tools_default_enabled()
     enable_tools = default_tool_flag if idea.enable_tools is None else idea.enable_tools
-    if enable_tools:
-        from .tools import registry
-
-        response_tools = registry.as_openai_tools()
-    else:
-        response_tools = []
     return generate_plan(
         title=idea.title,
         context=idea.context or "",
@@ -365,7 +319,6 @@ def generate_plan_for_idea(
         risks=defaults["risks"],
         users=defaults["users"],
         trace=planner_trace,
-        tools=response_tools,
         enable_tools=bool(enable_tools),
     )
 
@@ -381,12 +334,10 @@ def generate_plan(
     risks: list[str],
     users: str,
     trace: TraceMemory,
-    tools: list[dict[str, object]],
     enable_tools: bool,
 ) -> dict[str, str]:
     plan_id = uuid4().hex
     constraint_list = constraints or []
-    user_prompt = build_user_prompt(title, context, constraint_list)
     agent_prompt = (
         "Generate a PRD plan for the following idea. Provide structured JSON with keys: problem, "
         "goals, nongoals, requirements, acceptance, risks, users.\n"
@@ -408,7 +359,6 @@ def generate_plan(
         },
         trace=trace,
         enable_tools=enable_tools,
-        tools=tools,
     )
 
     def _merge_list(default: list[str], candidate: list[str]) -> list[str]:
@@ -493,17 +443,6 @@ def generate_plan(
         )
         prompt = build_revision_prompt(title, context, constraint_list, plan_result, critic_review)
 
-    guidance = _maybe_get_dspy_guidance(title, context, constraint_list)
-
-    trace.add(
-        "meta",
-        json.dumps(
-            {
-                "event": "dspy_guidance",
-                "status": "used" if guidance else "skipped",
-            }
-        ),
-    )
     alignment_suggestions = _collect_related_goals(title, goals)
     alignment_status = "none"
     notification_meta: dict[str, object] = {"reason": "no_matches"}
@@ -518,18 +457,11 @@ def generate_plan(
             ),
         )
         alignment_note = _build_alignment_note(alignment_suggestions)
-        user_prompt = f"{user_prompt}\n\nExisting alignment signal:\n{alignment_note}"
         alignment_status, notification_meta = _notify_alignment(title, alignment_note, alignment_suggestions)
-        logger.info("Goal alignment note appended to planner prompt")
+        logger.info("Goal alignment matches detected")
     else:
         record_alignment_notification("none")
         notification_meta = {"reason": "no_matches"}
-    if guidance:
-        user_prompt = f"{user_prompt}\n\nGuidance:\n{guidance}"
-        logger.info("DSPy guidance appended to planner prompt")
-    trace.add("user", user_prompt)
-    text = openai_client.create_plan(SYSTEM_PROMPT, user_prompt, tools=tools)
-    trace.add("assistant", text)
     prd = PRD_TEMPLATE.render(
         title=title,
         context=context,
@@ -558,7 +490,6 @@ def generate_plan(
     result = {
         "plan_id": plan_id,
         "prd_markdown": prd,
-        "raw_plan": text,
         "status_digest": digest,
         "critic_review": review_payload,
         "revision_history": revision_history,
@@ -586,7 +517,5 @@ def generate_plan(
 __all__ = [
     "generate_plan",
     "generate_plan_for_idea",
-    "build_user_prompt",
-    "SYSTEM_PROMPT",
     "build_status_digest",
 ]

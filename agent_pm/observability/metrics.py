@@ -71,12 +71,6 @@ tool_invocations_total = Counter(
     labelnames=("tool", "result"),
 )
 
-dspy_guidance_total = Counter(
-    "dspy_guidance_total",
-    "DSPy guidance usage grouped by outcome",
-    labelnames=("outcome",),
-)
-
 alignment_notification_total = Counter(
     "alignment_notification_total",
     "Goal alignment notifications grouped by status",
@@ -169,10 +163,6 @@ def record_tool_invocation(tool: str, result: str) -> None:
     tool_invocations_total.labels(tool=tool, result=result).inc()
 
 
-def record_dspy_guidance(outcome: str) -> None:
-    dspy_guidance_total.labels(outcome=outcome).inc()
-
-
 def record_alignment_notification(status: str) -> None:
     alignment_notification_total.labels(status=status).inc()
 
@@ -234,7 +224,6 @@ __all__ = [
     "record_guardrail_rejection",
     "record_revisions",
     "record_tool_invocation",
-    "record_dspy_guidance",
     "record_alignment_notification",
     "record_alignment_followup",
     "record_alignment_export",

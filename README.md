@@ -114,7 +114,7 @@ PRD versioning essentials:
 | `PAGERDUTY_ROUTING_KEY` / `SLACK_*` | Enable incident escalation and Slack digests. |
 | `GITHUB_*`, `GOOGLE_*`, `NOTION_*`, `GMAIL_*` | Provide connector credentials and scopes. |
 
-See `config/agents.yaml`, `config/tools.yaml`, and `.env.example` for additional tunables.
+See `config/agents.yaml` and `.env.example` for additional tunables.
 
 ## Development
 
