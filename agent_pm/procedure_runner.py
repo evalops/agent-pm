@@ -95,7 +95,7 @@ async def _generate_plan_result(name: str, proc: dict[str, Any]) -> dict[str, An
     )
     if settings.dry_run:
         return {"plan_id": uuid4().hex, "dry_run": True, "title": idea.title}
-    return await asyncio.to_thread(generate_plan_for_idea, idea)
+    return await generate_plan_for_idea(idea)
 
 
 def _step_condition_satisfied(step: dict[str, Any]) -> bool:

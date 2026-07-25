@@ -334,7 +334,7 @@ async def _plan_impl(idea: Idea) -> dict[str, Any]:
     trace = TraceMemory()
 
     try:
-        result = generate_plan_for_idea(idea, trace=trace)
+        result = await generate_plan_for_idea(idea, trace=trace)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     trace_path = persist_trace(idea.title, trace)
