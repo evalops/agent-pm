@@ -1,1 +1,1 @@
-"""Storage backends for Agent PM (database models, Redis utilities, async task queues)."""
+"""Storage backends for Agent PM (database models and connector sync records)."""

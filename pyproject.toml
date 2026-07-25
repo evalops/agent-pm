@@ -23,7 +23,6 @@ dependencies = [
     "sqlalchemy>=2.0",
     "asyncpg",
     "aiosqlite",
-    "redis[async]>=5.0",
 ]
 
 [project.optional-dependencies]
@@ -33,7 +32,6 @@ dev = [
     "pytest-cov",
     "ruff",
     "mypy",
-    "fakeredis>=2.32.0",
 ]
 
 [build-system]
@@ -83,8 +81,3 @@ files = ["agent_pm"]
 disable_error_code = ["import-untyped", "import-not-found"]
 exclude = ["^evals/"]
 ignore_errors = true
-
-[dependency-groups]
-dev = [
-    "fakeredis>=2.32.0",
-]

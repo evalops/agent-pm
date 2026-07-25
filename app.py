@@ -6,7 +6,7 @@ import asyncio
 import logging
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -40,7 +40,6 @@ from agent_pm.models import (
     SlackDigest,
     TicketPlan,
 )
-from agent_pm.observability.dashboard import gather_queue_health
 from agent_pm.observability.export import schedule_trace_export
 from agent_pm.observability.logging import configure_logging
 from agent_pm.observability.metrics import (
@@ -69,15 +68,12 @@ from agent_pm.scheduler import scheduler
 from agent_pm.settings import settings
 from agent_pm.storage import syncs as sync_storage
 from agent_pm.storage.database import PRDVersion, get_db
-from agent_pm.storage.tasks import TaskStatus, get_task_queue
 from agent_pm.tasks.sync import PeriodicSyncManager, create_default_sync_manager
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    global _task_queue, _sync_manager
-    _task_queue = await get_task_queue()
-    await _task_queue.start()
+    global _sync_manager
     _sync_manager = create_default_sync_manager()
     try:
         await _sync_manager.start()
@@ -99,8 +95,6 @@ async def lifespan(_app: FastAPI):
         if _sync_manager is not None:
             await _sync_manager.stop()
             _sync_manager = None
-        if _task_queue:
-            await _task_queue.stop()
         logger.info("Agent PM service stopped")
 
 
@@ -113,7 +107,6 @@ else:
 
 logger = logging.getLogger(__name__)
 _jira_lock = asyncio.Lock()
-_task_queue = None
 _sync_manager: PeriodicSyncManager | None = None
 
 plugin_registry.attach_app(lifespan_app)
@@ -124,16 +117,6 @@ class FollowupUpdate(BaseModel):
 
 
 app = lifespan_app
-
-
-@app.get("/tasks/health", dependencies=[Depends(enforce_rate_limit)])
-async def task_queue_health(_admin_key: AdminKeyDep = None) -> dict[str, Any]:
-    data = await gather_queue_health()
-    return {
-        "queue": data.queue_name,
-        "dead_letters": data.dead_letters,
-        "auto_triage_enabled": data.auto_triage_enabled,
-    }
 
 
 @app.get("/sync/status", dependencies=[Depends(enforce_rate_limit)])
@@ -441,125 +424,6 @@ async def operator_get_trace(
 async def metrics() -> PlainTextResponse:
     content = latest_metrics()
     return PlainTextResponse(content, media_type="text/plain; version=0.0.4")
-
-
-@app.get("/tasks")
-async def list_tasks(status: str | None = None, limit: int = 50, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
-    """List all tasks with optional status filter."""
-    task_queue = await get_task_queue()
-    task_status = TaskStatus(status) if status else None
-    tasks = await task_queue.list_tasks(status=task_status, limit=limit)
-    return {
-        "tasks": [
-            {
-                "task_id": t.task_id,
-                "name": t.name,
-                "status": t.status.value,
-                "created_at": t.created_at.isoformat(),
-                "retry_count": t.retry_count,
-                "error": t.error,
-            }
-            for t in tasks
-        ],
-        "total": len(tasks),
-    }
-
-
-@app.get("/tasks/dead-letter")
-async def list_dead_letter(
-    limit: int = 50,
-    offset: int = 0,
-    workflow_id: str | None = None,
-    error_type: str | None = None,
-    _admin_key: AdminKeyDep = None,
-) -> dict[str, Any]:
-    task_queue = await get_task_queue()
-    items, total = await task_queue.list_dead_letters(
-        limit=limit, offset=offset, workflow_id=workflow_id, error_type=error_type
-    )
-    config = {
-        "auto_requeue_errors": settings.task_queue_auto_requeue_errors,
-        "alert_threshold": settings.task_queue_alert_threshold,
-        "alert_window_minutes": settings.task_queue_alert_window_minutes,
-        "alert_cooldown_minutes": settings.task_queue_alert_cooldown_minutes,
-        "alert_channel": settings.task_queue_alert_channel,
-    }
-    return {
-        "dead_letter": [
-            {
-                **item,
-                "metadata": item.get("metadata", {}),
-                "error_type": item.get("error_type"),
-                "error_message": item.get("error_message"),
-                "stack_trace": item.get("stack_trace"),
-            }
-            for item in items
-        ],
-        "total": total,
-        "limit": limit,
-        "offset": offset,
-        "auto_triage": config,
-    }
-
-
-@app.get("/tasks/dead-letter/{task_id}")
-async def get_dead_letter(task_id: str, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
-    task_queue = await get_task_queue()
-    item = await task_queue.get_dead_letter(task_id)
-    if not item:
-        raise HTTPException(status_code=404, detail="Dead-letter task not found")
-    return item
-
-
-@app.delete("/tasks/dead-letter/{task_id}")
-async def delete_dead_letter(task_id: str, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
-    task_queue = await get_task_queue()
-    await task_queue.delete_dead_letter(task_id)
-    return {"task_id": task_id, "status": "deleted"}
-
-
-@app.delete("/tasks/dead-letter")
-async def purge_dead_letters(older_than_minutes: int | None = None, _admin_key: AdminKeyDep = None) -> dict[str, int]:
-    task_queue = await get_task_queue()
-    if older_than_minutes is None:
-        deleted = await task_queue.purge_dead_letters()
-    else:
-        deleted = await task_queue.purge_dead_letters_older_than(timedelta(minutes=older_than_minutes))
-    return {"deleted": deleted}
-
-
-@app.get("/tasks/workers")
-async def worker_status(_admin_key: AdminKeyDep = None) -> dict[str, Any]:
-    task_queue = await get_task_queue()
-    return {"workers": await task_queue.worker_heartbeats()}
-
-
-@app.get("/tasks/{task_id}")
-async def get_task(task_id: str, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
-    """Get task status by ID."""
-    task_queue = await get_task_queue()
-    task = await task_queue.get_task(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return {
-        "task_id": task.task_id,
-        "name": task.name,
-        "status": task.status.value,
-        "created_at": task.created_at.isoformat(),
-        "started_at": task.started_at.isoformat() if task.started_at else None,
-        "completed_at": task.completed_at.isoformat() if task.completed_at else None,
-        "retry_count": task.retry_count,
-        "error": task.error,
-    }
-
-
-@app.post("/tasks/dead-letter/{task_id}/requeue")
-async def requeue_dead_letter(task_id: str, _admin_key: AdminKeyDep = None) -> dict[str, Any]:
-    task_queue = await get_task_queue()
-    payload = await task_queue.requeue_dead_letter(task_id)
-    if payload is None:
-        raise HTTPException(status_code=404, detail="Dead-letter task not found")
-    return {"task_id": payload.get("task_id", task_id), "status": "requeued"}
 
 
 @app.post("/prd/{plan_id}/versions")

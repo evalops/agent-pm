@@ -17,19 +17,6 @@ services:
       timeout: 5s
       retries: 5
 
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    command: redis-server --save 60 1 --loglevel warning
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   app:
     build: .
     ports:
@@ -37,18 +24,13 @@ services:
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - DATABASE_URL=postgresql+asyncpg://agent_pm:agent_pm_dev@postgres:5432/agent_pm
-      - REDIS_URL=redis://redis:6379/0
-      - TASK_QUEUE_BACKEND=redis
       - DRY_RUN=true
       - LOG_FORMAT=json
       - ENABLE_OPENTELEMETRY=false
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
     command: uv run uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 
 volumes:
   postgres_data:
-  redis_data:
