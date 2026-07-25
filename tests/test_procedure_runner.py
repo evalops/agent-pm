@@ -451,7 +451,11 @@ async def test_weekly_progress_review_uses_calendar_scan(monkeypatch):
                         {
                             "id": "evt-0",
                             "summary": "Earlier today",
-                            "start": {"dateTime": (now - timedelta(hours=1)).isoformat()},
+                            "start": {
+                                "dateTime": (
+                                    now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(hours=1)
+                                ).isoformat()
+                            },
                         },
                         {
                             "id": "evt-1",
