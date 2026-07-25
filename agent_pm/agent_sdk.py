@@ -323,7 +323,7 @@ def _build_critic_prompt(plan: PRDPlan) -> str:
     )
 
 
-def run_critic_agent(
+async def run_critic_agent(
     plan: PRDPlan,
     conversation_id: str | None = None,
     max_turns: int | None = None,
@@ -332,7 +332,7 @@ def run_critic_agent(
     prompt = _build_critic_prompt(plan)
     try:
         with trace("critic-agent"):
-            result = _RUNNER.run_sync(
+            result = await _RUNNER.run(
                 _CRITIC_AGENT,
                 prompt,
                 session=session,
@@ -358,7 +358,7 @@ def run_critic_agent(
     return CriticReview(status="revise", issues=["Critic returned no structured output."])
 
 
-def run_planner_agent(
+async def run_planner_agent(
     prompt: str,
     conversation_id: str | None = None,
     max_turns: int | None = None,
@@ -377,7 +377,7 @@ def run_planner_agent(
         with trace("planner-agent"):
             tools_flag = _planner_tools_default if enable_tools is None else enable_tools
             agent = _PLANNER_AGENT_WITH_TOOLS if tools_flag else _BASE_PLANNER_AGENT
-            result = _RUNNER.run_sync(
+            result = await _RUNNER.run(
                 agent,
                 prompt,
                 session=session,

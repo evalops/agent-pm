@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-import hashlib
 import logging
 
 from agent_pm.openai_utils import get_async_openai_client
@@ -11,18 +9,17 @@ from agent_pm.openai_utils import get_async_openai_client
 logger = logging.getLogger(__name__)
 
 
-def _stub_embedding(text: str, size: int = 1536) -> list[float]:
-    digest = hashlib.sha1(text.encode("utf-8")).digest()
-    data = digest * ((size + len(digest) - 1) // len(digest))
-    return [data[i] / 255.0 for i in range(size)]
+async def generate_embedding(text: str, model: str = "text-embedding-3-small") -> list[float] | None:
+    """Generate an embedding vector using the OpenAI API.
 
-
-async def generate_embedding(text: str, model: str = "text-embedding-3-small") -> list[float]:
-    """Generate embedding vector using OpenAI API or a deterministic stub in dry-run mode."""
+    Returns ``None`` when no OpenAI client is available (dry-run mode) so
+    callers can skip embedding-dependent features. Raises on API failure.
+    Embeddings are never fabricated.
+    """
     client = get_async_openai_client()
     if client is None:
-        logger.info("Returning stub embedding in dry-run mode")
-        return _stub_embedding(text)
+        logger.info("No OpenAI client available (dry-run mode); skipping embedding generation")
+        return None
     try:
         response = await client.embeddings.create(input=text, model=model)
         return response.data[0].embedding
@@ -41,29 +38,6 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
     if magnitude_a == 0 or magnitude_b == 0:
         return 0.0
     return dot_product / (magnitude_a * magnitude_b)
-
-
-def generate_embedding_sync(text: str, model: str = "text-embedding-3-small") -> list[float]:
-    """Blocking helper for generating embeddings.
-
-    Falls back to deterministic stub when called from an active event loop or
-    when OpenAI access fails.
-    """
-
-    if not text:
-        return []
-
-    async def _generate() -> list[float]:
-        return await generate_embedding(text, model=model)
-
-    try:
-        return asyncio.run(_generate())
-    except RuntimeError:
-        logger.debug("generate_embedding_sync falling back to stub due to running loop")
-        return _stub_embedding(text)
-    except Exception as exc:  # pragma: no cover - defensive path
-        logger.warning("generate_embedding_sync failed: %s", exc)
-        return _stub_embedding(text)
 
 
 async def search_similar_plans(

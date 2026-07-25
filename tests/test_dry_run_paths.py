@@ -5,15 +5,15 @@ from agent_pm import embeddings, openai_utils
 from agent_pm.prd import changelog
 
 
-def test_generate_embedding_dry_run_returns_stub(monkeypatch):
+def test_generate_embedding_dry_run_returns_none(monkeypatch):
     dummy_settings = SimpleNamespace(openai_api_key=None, dry_run=True)
     monkeypatch.setattr(embeddings, "settings", dummy_settings, raising=False)
     monkeypatch.setattr(openai_utils, "settings", dummy_settings, raising=False)
 
     result = asyncio.run(embeddings.generate_embedding("hello world"))
 
-    assert len(result) == 1536
-    assert all(0.0 <= value <= 1.0 for value in result)
+    # Dry-run mode must skip embeddings, never fabricate them.
+    assert result is None
 
 
 def test_generate_changelog_dry_run_returns_summary(monkeypatch):

@@ -93,7 +93,7 @@ def _extract_goal_section(prd_text: str) -> list[str]:
     return extracted
 
 
-def _collect_related_goals(title: str, goals: list[str]) -> list[dict[str, object]]:
+async def _collect_related_goals(title: str, goals: list[str]) -> list[dict[str, object]]:
     if not goals:
         return []
 
@@ -102,12 +102,13 @@ def _collect_related_goals(title: str, goals: list[str]) -> list[dict[str, objec
         return []
 
     try:
-        query_embedding = embeddings.generate_embedding_sync(query_text)
+        query_embedding = await embeddings.generate_embedding(query_text)
     except Exception as exc:  # pragma: no cover - defensive
-        logger.warning("goal embedding failed: %s", exc)
+        logger.warning("goal embedding failed; skipping goal alignment: %s", exc)
         return []
 
     if not query_embedding:
+        logger.warning("No goal embedding available; skipping goal alignment")
         return []
 
     try:
@@ -135,7 +136,11 @@ def _collect_related_goals(title: str, goals: list[str]) -> list[dict[str, objec
         if not candidate_text:
             continue
 
-        candidate_embedding = embeddings.generate_embedding_sync(candidate_text)
+        try:
+            candidate_embedding = await embeddings.generate_embedding(candidate_text)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("candidate goal embedding failed for %s: %s", existing_title, exc)
+            continue
         if not candidate_embedding:
             continue
 
@@ -205,7 +210,7 @@ def _mark_alignment_notified(pairs: list[tuple[str, str]]) -> list[tuple[str, st
     return new_pairs
 
 
-def _notify_alignment(
+async def _notify_alignment(
     title: str, alignment_note: str, suggestions: list[dict[str, object]]
 ) -> tuple[str, dict[str, object]]:
     metadata: dict[str, object] = {"message": alignment_note}
@@ -247,44 +252,21 @@ def _notify_alignment(
     message = f"*Goal alignment surfaced for*: {title}\n{alignment_note}"
 
     try:
-        import asyncio
-
-        async def _post() -> dict[str, object]:
-            return await slack_client.post_digest(message)
-
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            metadata["mode"] = "sync"
-            response = asyncio.run(_post())
-            metadata["response"] = response
-        else:
-            metadata["mode"] = "async"
-            task = loop.create_task(_post())
-
-            def _log_completion(task: asyncio.Task) -> None:
-                if task.cancelled():  # pragma: no cover - defensive
-                    logger.info("Goal alignment notification task cancelled")
-                    record_alignment_notification("cancelled")
-                elif (exc := task.exception()) is not None:
-                    logger.warning("Goal alignment notification failed: %s", exc)
-                    record_alignment_notification("error")
-                else:
-                    record_alignment_notification("success_async")
-
-            task.add_done_callback(_log_completion)
-        status = "success"
-        record_alignment_notification(status)
-        return status, metadata
+        response = await slack_client.post_digest(message)
     except Exception as exc:  # pragma: no cover - logging for observability
-        logger.warning("Failed to dispatch goal alignment notification: %s", exc)
+        logger.warning("Failed to send goal alignment notification: %s", exc)
         status = "error"
         metadata["error"] = str(exc)
         record_alignment_notification(status)
         return status, metadata
 
+    metadata["response"] = response
+    status = "success"
+    record_alignment_notification(status)
+    return status, metadata
 
-def generate_plan_for_idea(
+
+async def generate_plan_for_idea(
     idea: Idea,
     *,
     trace: TraceMemory | None = None,
@@ -308,7 +290,7 @@ def generate_plan_for_idea(
     planner_trace = trace if trace is not None else TraceMemory()
     default_tool_flag = settings.agent_tools_enabled or planner_tools_default_enabled()
     enable_tools = default_tool_flag if idea.enable_tools is None else idea.enable_tools
-    return generate_plan(
+    return await generate_plan(
         title=idea.title,
         context=idea.context or "",
         constraints=idea.constraints,
@@ -323,7 +305,7 @@ def generate_plan_for_idea(
     )
 
 
-def generate_plan(
+async def generate_plan(
     title: str,
     context: str,
     constraints: list[str] | None,
@@ -379,7 +361,7 @@ def generate_plan(
         logger.info("planner attempt=%s enable_tools=%s", attempt, enable_tools)
         with record_planner_request():
             try:
-                plan_result = run_planner_agent(
+                plan_result = await run_planner_agent(
                     prompt,
                     conversation_id=f"{conversation_base}::{attempt}",
                     enable_tools=enable_tools,
@@ -405,7 +387,7 @@ def generate_plan(
         problem = plan_result.problem or "Summarized problem statement."
 
         try:
-            critic_review = run_critic_agent(
+            critic_review = await run_critic_agent(
                 plan_result,
                 conversation_id=f"{critic_base}::{attempt}",
             )
@@ -443,7 +425,7 @@ def generate_plan(
         )
         prompt = build_revision_prompt(title, context, constraint_list, plan_result, critic_review)
 
-    alignment_suggestions = _collect_related_goals(title, goals)
+    alignment_suggestions = await _collect_related_goals(title, goals)
     alignment_status = "none"
     notification_meta: dict[str, object] = {"reason": "no_matches"}
     if alignment_suggestions:
@@ -457,7 +439,7 @@ def generate_plan(
             ),
         )
         alignment_note = _build_alignment_note(alignment_suggestions)
-        alignment_status, notification_meta = _notify_alignment(title, alignment_note, alignment_suggestions)
+        alignment_status, notification_meta = await _notify_alignment(title, alignment_note, alignment_suggestions)
         logger.info("Goal alignment matches detected")
     else:
         record_alignment_notification("none")

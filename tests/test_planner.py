@@ -26,7 +26,7 @@ def capture_alignment_events(monkeypatch):
     return events
 
 
-def test_generate_plan_produces_status_digest(monkeypatch):
+async def test_generate_plan_produces_status_digest(monkeypatch):
     monkeypatch.setattr(planner_module.vector_memory, "record_prd", lambda *args, **kwargs: None)
     monkeypatch.setattr(planner_module.vector_memory, "to_dataframe", lambda: pd.DataFrame())
     fired_hooks: list[str] = []
@@ -44,19 +44,19 @@ def test_generate_plan_produces_status_digest(monkeypatch):
         risks=["Scope creep"],
         users="PMs and execs",
     )
-    monkeypatch.setattr(
-        planner_module,
-        "run_planner_agent",
-        lambda prompt, conversation_id=None, enable_tools=False, max_turns=None: plan,
-    )
-    review = CriticReview(status="pass", issues=[], recommendations=["Ship weekly digest"], confidence=0.8)
-    monkeypatch.setattr(
-        planner_module,
-        "run_critic_agent",
-        lambda plan_result, conversation_id=None, max_turns=None: review,
-    )
 
-    result = planner_module.generate_plan(
+    async def fake_planner(prompt, conversation_id=None, enable_tools=False, max_turns=None):
+        return plan
+
+    monkeypatch.setattr(planner_module, "run_planner_agent", fake_planner)
+    review = CriticReview(status="pass", issues=[], recommendations=["Ship weekly digest"], confidence=0.8)
+
+    async def fake_critic(plan_result, conversation_id=None, max_turns=None):
+        return review
+
+    monkeypatch.setattr(planner_module, "run_critic_agent", fake_critic)
+
+    result = await planner_module.generate_plan(
         title="Test Initiative",
         context="Need visibility",
         constraints=["Two-week MVP"],
@@ -80,7 +80,7 @@ def test_generate_plan_produces_status_digest(monkeypatch):
     assert "post_plan" in fired_hooks
 
 
-def test_generate_plan_revision_flow(monkeypatch):
+async def test_generate_plan_revision_flow(monkeypatch):
     monkeypatch.setattr(planner_module.vector_memory, "record_prd", lambda *args, **kwargs: None)
     monkeypatch.setattr(planner_module.vector_memory, "to_dataframe", lambda: pd.DataFrame())
 
@@ -105,7 +105,7 @@ def test_generate_plan_revision_flow(monkeypatch):
 
     plan_iter = iter([first_plan, second_plan])
 
-    def fake_planner(prompt, conversation_id=None, enable_tools=False, max_turns=None):
+    async def fake_planner(prompt, conversation_id=None, enable_tools=False, max_turns=None):
         return next(plan_iter)
 
     monkeypatch.setattr(planner_module, "run_planner_agent", fake_planner)
@@ -122,13 +122,12 @@ def test_generate_plan_revision_flow(monkeypatch):
         ]
     )
 
-    monkeypatch.setattr(
-        planner_module,
-        "run_critic_agent",
-        lambda plan_result, conversation_id=None, max_turns=None: next(review_iter),
-    )
+    async def fake_critic(plan_result, conversation_id=None, max_turns=None):
+        return next(review_iter)
 
-    result = planner_module.generate_plan(
+    monkeypatch.setattr(planner_module, "run_critic_agent", fake_critic)
+
+    result = await planner_module.generate_plan(
         title="Onboarding Revamp",
         context="Activation is flat",
         constraints=["Ship in Q1"],
@@ -148,7 +147,7 @@ def test_generate_plan_revision_flow(monkeypatch):
     assert "Activation metric defined" in result["prd_markdown"]
 
 
-def test_goal_alignment_surfaces_related_initiatives(monkeypatch, capture_alignment_events):
+async def test_goal_alignment_surfaces_related_initiatives(monkeypatch, capture_alignment_events):
     monkeypatch.setattr(planner_module.vector_memory, "record_prd", lambda *args, **kwargs: None)
 
     alignment_df = pd.DataFrame(
@@ -161,11 +160,10 @@ def test_goal_alignment_surfaces_related_initiatives(monkeypatch, capture_alignm
     )
     monkeypatch.setattr(planner_module.vector_memory, "to_dataframe", lambda: alignment_df)
 
-    monkeypatch.setattr(
-        planner_module.embeddings,
-        "generate_embedding_sync",
-        lambda text, model="text-embedding-3-small": [1.0, 0.0] if "visibility" in text.lower() else [0.0, 1.0],
-    )
+    async def fake_embedding(text, model="text-embedding-3-small"):
+        return [1.0, 0.0] if "visibility" in text.lower() else [0.0, 1.0]
+
+    monkeypatch.setattr(planner_module.embeddings, "generate_embedding", fake_embedding)
     monkeypatch.setattr(planner_module.embeddings, "cosine_similarity", lambda a, b: 0.95 if a == b else 0.1)
 
     planner_module._alignment_history.clear()
@@ -181,12 +179,14 @@ def test_goal_alignment_surfaces_related_initiatives(monkeypatch, capture_alignm
         users="PM org",
     )
 
-    monkeypatch.setattr(planner_module, "run_planner_agent", lambda *args, **kwargs: plan)
-    monkeypatch.setattr(
-        planner_module,
-        "run_critic_agent",
-        lambda *args, **kwargs: CriticReview(status="pass", issues=[], recommendations=[], confidence=0.9),
-    )
+    async def fake_planner(*args, **kwargs):
+        return plan
+
+    async def fake_critic(*args, **kwargs):
+        return CriticReview(status="pass", issues=[], recommendations=[], confidence=0.9)
+
+    monkeypatch.setattr(planner_module, "run_planner_agent", fake_planner)
+    monkeypatch.setattr(planner_module, "run_critic_agent", fake_critic)
 
     notifications: list[tuple[tuple[str, ...], dict[str, object]]] = []
     recorded_statuses: list[str] = []
@@ -196,7 +196,7 @@ def test_goal_alignment_surfaces_related_initiatives(monkeypatch, capture_alignm
         lambda status: recorded_statuses.append(status),
     )
 
-    def _fake_notify(*args, **kwargs):
+    async def _fake_notify(*args, **kwargs):
         notifications.append((args, kwargs))
         planner_module.record_alignment_notification("success")
         return "success", {"channel": "test"}
@@ -205,7 +205,7 @@ def test_goal_alignment_surfaces_related_initiatives(monkeypatch, capture_alignm
 
     trace = TraceMemory()
 
-    result = planner_module.generate_plan(
+    result = await planner_module.generate_plan(
         title="Visibility Initiative",
         context="Need better dashboards",
         constraints=["Launch this quarter"],
@@ -234,7 +234,78 @@ def test_goal_alignment_surfaces_related_initiatives(monkeypatch, capture_alignm
     assert result["alignment_event_id"]
 
 
-def test_notify_alignment_respects_configuration(monkeypatch):
+async def test_goal_alignment_skipped_when_embeddings_unavailable(monkeypatch, capture_alignment_events):
+    """Embedding failures must skip alignment, never fabricate similarity."""
+    monkeypatch.setattr(planner_module.vector_memory, "record_prd", lambda *args, **kwargs: None)
+
+    alignment_df = pd.DataFrame(
+        [
+            {
+                "idea": "Visibility OKRs",
+                "prd": "# PRD\n## Goals\n- Improve visibility for PMs\n- Increase adoption",
+            }
+        ]
+    )
+    monkeypatch.setattr(planner_module.vector_memory, "to_dataframe", lambda: alignment_df)
+
+    async def failing_embedding(text, model="text-embedding-3-small"):
+        raise RuntimeError("embedding API unavailable")
+
+    monkeypatch.setattr(planner_module.embeddings, "generate_embedding", failing_embedding)
+
+    plan = PRDPlan(
+        problem="Data fragmentation",
+        goals=["Improve visibility for PMs"],
+        nongoals=[],
+        requirements=["Ship dashboard"],
+        acceptance=["Dashboard live"],
+        risks=["Adoption"],
+        users="PM org",
+    )
+
+    async def fake_planner(*args, **kwargs):
+        return plan
+
+    async def fake_critic(*args, **kwargs):
+        return CriticReview(status="pass", issues=[], recommendations=[], confidence=0.9)
+
+    monkeypatch.setattr(planner_module, "run_planner_agent", fake_planner)
+    monkeypatch.setattr(planner_module, "run_critic_agent", fake_critic)
+
+    notify_calls: list[tuple[tuple[str, ...], dict[str, object]]] = []
+
+    async def _fake_notify(*args, **kwargs):
+        notify_calls.append((args, kwargs))
+        return "success", {}
+
+    monkeypatch.setattr(planner_module, "_notify_alignment", _fake_notify)
+
+    trace = TraceMemory()
+
+    result = await planner_module.generate_plan(
+        title="Visibility Initiative",
+        context="Need better dashboards",
+        constraints=["Launch this quarter"],
+        requirements=["Dashboard"],
+        acceptance=["Usage tracked"],
+        goals=["Improve visibility for PMs"],
+        nongoals=[],
+        risks=["Bandwidth"],
+        users="PM org",
+        trace=trace,
+        enable_tools=False,
+    )
+
+    assert result["related_initiatives"] == []
+    assert result["alignment_insights"] == []
+    assert result["alignment_notification"]["status"] == "none"
+    assert "## Related Initiatives" not in result["prd_markdown"]
+    assert not notify_calls
+    alignment_events = [json.loads(e["content"]) for e in trace.dump() if e["role"] == "meta"]
+    assert not [e for e in alignment_events if e.get("event") == "goal_alignment"]
+
+
+async def test_notify_alignment_respects_configuration(monkeypatch):
     planner_module._alignment_history.clear()
     planner_module._alignment_history_set.clear()
 
@@ -254,7 +325,7 @@ def test_notify_alignment_respects_configuration(monkeypatch):
     statuses: list[str] = []
     monkeypatch.setattr(planner_module, "record_alignment_notification", lambda status: statuses.append(status))
 
-    status, meta = planner_module._notify_alignment("Test Initiative", "Note", [{"idea": "Other"}])
+    status, meta = await planner_module._notify_alignment("Test Initiative", "Note", [{"idea": "Other"}])
 
     assert calls == []
     assert status == "disabled"
@@ -262,7 +333,7 @@ def test_notify_alignment_respects_configuration(monkeypatch):
     assert meta.get("reason") == "notifications_disabled"
 
 
-def test_notify_alignment_deduplicates_pairs(monkeypatch):
+async def test_notify_alignment_deduplicates_pairs(monkeypatch):
     planner_module._alignment_history.clear()
     planner_module._alignment_history_set.clear()
 
@@ -282,13 +353,14 @@ def test_notify_alignment_deduplicates_pairs(monkeypatch):
     statuses: list[str] = []
     monkeypatch.setattr(planner_module, "record_alignment_notification", lambda status: statuses.append(status))
 
-    first_status, first_meta = planner_module._notify_alignment("Test Initiative", "Note", [{"idea": "Other"}])
-    second_status, second_meta = planner_module._notify_alignment(
+    first_status, first_meta = await planner_module._notify_alignment("Test Initiative", "Note", [{"idea": "Other"}])
+    second_status, second_meta = await planner_module._notify_alignment(
         "Test Initiative", "Another note", [{"idea": "Other"}]
     )
 
     assert len(calls) == 1
     assert first_status == "success"
+    assert first_meta.get("response") == {"ok": True}
     assert second_status == "duplicate"
     assert "duplicate" in statuses
     assert second_meta.get("reason") == "duplicate_pair"
