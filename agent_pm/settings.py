@@ -4,7 +4,6 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -133,28 +132,8 @@ class Settings(BaseSettings):
     api_key: str | None = Field(None, alias="API_KEY")
     admin_api_key: str | None = Field(None, alias="ADMIN_API_KEY")
     log_format: str = Field("json", alias="LOG_FORMAT")  # json or text
-    task_queue_workers: int = Field(5, alias="TASK_QUEUE_WORKERS")
-    task_queue_backend: Literal["memory", "redis"] = Field("memory", alias="TASK_QUEUE_BACKEND")
-    task_queue_poll_interval: float = Field(0.2, alias="TASK_QUEUE_POLL_INTERVAL")
-    task_queue_task_timeout: int = Field(300, alias="TASK_QUEUE_TASK_TIMEOUT")
-    task_queue_retry_backoff_base: float = Field(2.0, alias="TASK_QUEUE_RETRY_BACKOFF_BASE")
-    task_queue_retry_backoff_max: float = Field(60.0, alias="TASK_QUEUE_RETRY_BACKOFF_MAX")
-    task_queue_worker_heartbeat_ttl: int = Field(60, alias="TASK_QUEUE_WORKER_HEARTBEAT_TTL")
-    task_queue_auto_requeue_errors: list[str] = Field(default_factory=list, alias="TASK_QUEUE_AUTO_REQUEUE_ERRORS")
-    task_queue_alert_threshold: int = Field(5, alias="TASK_QUEUE_ALERT_THRESHOLD")
-    task_queue_alert_window_minutes: int = Field(5, alias="TASK_QUEUE_ALERT_WINDOW_MINUTES")
-    task_queue_alert_channel: str | None = Field(None, alias="TASK_QUEUE_ALERT_CHANNEL")
-    task_queue_alert_cooldown_minutes: int = Field(10, alias="TASK_QUEUE_ALERT_COOLDOWN_MINUTES")
-    task_queue_max_auto_requeues: int = Field(3, alias="TASK_QUEUE_MAX_AUTO_REQUEUES")
-    task_queue_alert_webhook_url: str | None = Field(None, alias="TASK_QUEUE_ALERT_WEBHOOK_URL")
-    pagerduty_routing_key: str | None = Field(None, alias="PAGERDUTY_ROUTING_KEY")
-    task_queue_playbooks: dict[str, str] = Field(default_factory=dict, alias="TASK_QUEUE_PLAYBOOKS")
-    pagerduty_service_name: str | None = Field(None, alias="PAGERDUTY_SERVICE_NAME")
-    task_queue_adaptive_failure_threshold: float = Field(0.6, alias="TASK_QUEUE_ADAPTIVE_FAILURE_THRESHOLD")
-    task_queue_adaptive_min_samples: int = Field(10, alias="TASK_QUEUE_ADAPTIVE_MIN_SAMPLES")
     database_url: str | None = Field("sqlite+aiosqlite:///./data/agent_pm.db", alias="DATABASE_URL")
     database_echo: bool = Field(False, alias="DATABASE_ECHO")
-    redis_url: str = Field("redis://localhost:6379", alias="REDIS_URL")
     enable_opentelemetry: bool = Field(False, alias="ENABLE_OPENTELEMETRY")
     otel_service_name: str = Field("agent-pm", alias="OTEL_SERVICE_NAME")
     otel_exporter_endpoint: str | None = Field(None, alias="OTEL_EXPORTER_ENDPOINT")

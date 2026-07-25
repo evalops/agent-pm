@@ -5,7 +5,7 @@ FastAPI service that turns product ideas into structured PRDs, action plans, and
 ## Highlights
 
 - **Idea → Plan:** `/plan` produces PRD markdown, ticket plan, and trace metadata in a single call.
-- **Operational guardrails:** Dry-run mode, rate limiting, approvals, and background task queue keep external systems safe.
+- **Operational guardrails:** Dry-run mode, rate limiting, and approvals keep external systems safe.
 - **Living PRDs:** Git-style versioning, changelog generation, branching, blame, and approvals for product specs.
 - **Observability out of the box:** Structured logs, Prometheus metrics, and trace browsing.
 
@@ -38,9 +38,8 @@ The service listens on `http://localhost:8000` by default.
 
 - **FastAPI application** powers planner, ticketing, and admin APIs with dependency-injected services and guardrails.
 - **Connector suite** (GitHub, Slack, Gmail, Calendar, Google Drive, Notion) respects `settings.dry_run` and only mutates external systems when explicitly configured.
-- **Background task queue** runs in-memory or via Redis, supporting retries, adaptive auto-requeue, and remediation playbooks.
-- **Persistence layer** defaults to SQLite with optional Postgres; Redis stores queue state, heartbeats, and dead letters when enabled.
-- **Observability stack** ships with structured logging, Prometheus metrics, trace storage/export, and optional PagerDuty/Slack alerts.
+- **Persistence layer** defaults to SQLite with optional Postgres.
+- **Observability stack** ships with structured logging, Prometheus metrics, trace storage/export, and optional Slack alerts.
 
 ## Key Endpoints
 
@@ -51,7 +50,6 @@ The service listens on `http://localhost:8000` by default.
 | `/ticket` | POST | Produce Jira-ready stories (dry-run safe). |
 | `/prd/{plan_id}/versions` | GET/POST | List history or commit new PRD revisions. |
 | `/sync/status` | GET | Inspect recent connector sync executions. |
-| `/tasks/dead-letter` | GET/DELETE | Review or purge failed queue jobs. |
 | `/health` / `/health/ready` | GET | Liveness and dependency probes for automation. |
 | `/metrics` | GET | Expose Prometheus counters, histograms, and gauges. |
 
@@ -95,8 +93,6 @@ PRD versioning essentials:
 - **Health checks:** `/health` (liveness) and `/health/ready` (deep dependency verification).
 - **Metrics:** `/metrics` exposes Prometheus counters and histograms.
 - **Traces:** `/operators/traces` and `/operators/traces/{trace}` browse planner traces; async export via webhook or S3 when configured.
-- **Task queue:** `/tasks` and `/tasks/{id}` monitor background jobs.
-- **Alerts & playbooks:** Adaptive queue policies can requeue failures, post Slack digests, or trigger PagerDuty incidents through `task_queue_playbooks`.
 
 ## Configuration Reference
 
@@ -107,11 +103,8 @@ PRD versioning essentials:
 | `API_KEY` / `ADMIN_API_KEY` | Enable API-key auth for user and operator endpoints. |
 | `ALLOWED_PROJECTS` | Comma-separated allowlist for `/ticket`. |
 | `TRACE_DIR` / `TRACE_EXPORT_*` | Control on-disk traces and optional async exports. |
-| `TASK_QUEUE_WORKERS` | Number of background workers handling queued tasks. |
 | `LOG_FORMAT` | `json` for structured logging or `text` for local debugging. |
-| `TASK_QUEUE_BACKEND` | Choose `memory` (default) or `redis` for production-grade queuing. |
-| `TASK_QUEUE_ALERT_*` | Tune alert thresholds, cooldowns, channels, and auto-requeue behaviour. |
-| `PAGERDUTY_ROUTING_KEY` / `SLACK_*` | Enable incident escalation and Slack digests. |
+| `SLACK_*` | Enable Slack digests and alerts. |
 | `GITHUB_*`, `GOOGLE_*`, `NOTION_*`, `GMAIL_*` | Provide connector credentials and scopes. |
 
 See `config/agents.yaml` and `.env.example` for additional tunables.
@@ -122,7 +115,7 @@ See `config/agents.yaml` and `.env.example` for additional tunables.
 uv run ruff check .        # lint
 uv run ruff format --check .
 uv run pytest              # unit tests with coverage in CI
-docker compose up          # optional Postgres/Redis/worker stack
+docker compose up          # optional Postgres stack
 uv run mypy agent_pm       # type checking parity with CI
 ```
 
@@ -153,8 +146,8 @@ Please open an issue or pull request with context, and run lint/tests before sub
 ### Troubleshooting Checklist
 
 - Confirm `.env` secrets before enabling write operations; keep `DRY_RUN=true` locally for safe iteration.
-- Verify `REDIS_URL` and `DATABASE_URL` when running the optional docker-compose stack.
-- Inspect `/metrics`, `/tasks/dead-letter`, and Slack/PagerDuty alerts if connectors begin failing or playbooks trigger repeatedly.
+- Verify `DATABASE_URL` when running the optional docker-compose stack.
+- Inspect `/metrics` and Slack alerts if connectors begin failing.
 
 ## License
 

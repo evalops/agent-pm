@@ -5,43 +5,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from time import perf_counter
 
-from prometheus_client import Counter, Gauge, Histogram, Summary, generate_latest
-
-dead_letter_recorded_total = Counter(
-    "task_dead_letter_recorded_total",
-    "Dead-letter entries recorded",
-    labelnames=("queue", "error_type"),
-)
-
-dead_letter_requeued_total = Counter(
-    "task_dead_letter_requeued_total",
-    "Dead-letter entries requeued",
-    labelnames=("queue", "error_type"),
-)
-
-dead_letter_purged_total = Counter(
-    "task_dead_letter_purged_total",
-    "Dead-letter entries purged",
-    labelnames=("queue", "mode"),
-)
-
-dead_letter_active_gauge = Gauge(
-    "task_dead_letter_active",
-    "Current count of dead-letter entries",
-    labelnames=("queue",),
-)
-
-dead_letter_auto_requeue_total = Counter(
-    "task_dead_letter_auto_requeue_total",
-    "Dead-letter entries automatically requeued",
-    labelnames=("queue", "error_type"),
-)
-
-dead_letter_alert_total = Counter(
-    "task_dead_letter_alert_total",
-    "Dead-letter alert notifications",
-    labelnames=("queue", "error_type"),
-)
+from prometheus_client import Counter, Histogram, Summary, generate_latest
 
 planner_requests_total = Counter(
     "planner_requests_total",
@@ -93,25 +57,6 @@ alignment_feedback_total = Counter(
     "alignment_feedback_total",
     "Feedback submissions grouped by source",
     labelnames=("source",),
-)
-
-task_queue_enqueued_total = Counter(
-    "task_queue_enqueued_total",
-    "Tasks enqueued to background queue",
-    labelnames=("queue",),
-)
-
-task_queue_completed_total = Counter(
-    "task_queue_completed_total",
-    "Tasks completed grouped by status",
-    labelnames=("queue", "status"),
-)
-
-task_queue_latency_seconds = Histogram(
-    "task_queue_latency_seconds",
-    "Task execution latency in seconds",
-    labelnames=("queue",),
-    buckets=(0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60),
 )
 
 plugin_hook_invocations_total = Counter(
@@ -203,18 +148,6 @@ def record_client_call(client: str):
         client_latency_seconds.labels(client=client).observe(perf_counter() - start)
 
 
-def record_task_enqueued(queue: str) -> None:
-    task_queue_enqueued_total.labels(queue=queue).inc()
-
-
-def record_task_completion(queue: str, status: str) -> None:
-    task_queue_completed_total.labels(queue=queue, status=status).inc()
-
-
-def record_task_latency(queue: str, duration: float) -> None:
-    task_queue_latency_seconds.labels(queue=queue).observe(duration)
-
-
 def latest_metrics() -> bytes:
     return generate_latest()
 
@@ -231,14 +164,5 @@ __all__ = [
     "record_plugin_hook_invocation",
     "record_plugin_hook_failure",
     "record_client_call",
-    "record_task_enqueued",
-    "record_task_completion",
-    "record_task_latency",
     "latest_metrics",
-    "dead_letter_recorded_total",
-    "dead_letter_requeued_total",
-    "dead_letter_purged_total",
-    "dead_letter_active_gauge",
-    "dead_letter_auto_requeue_total",
-    "dead_letter_alert_total",
 ]
