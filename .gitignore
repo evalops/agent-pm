@@ -1,9 +1,0 @@
-.coverage
-.env
-__pycache__/
-*.pyc
-.data/
-/.venv/
-/data/
-*.egg-info/
-.venv/
