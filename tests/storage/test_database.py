@@ -37,9 +37,6 @@ async def test_init_db_creates_tables():
 
         tables = await conn.run_sync(_inspect_tables)
     expected_tables = {
-        "tasks",
-        "plans",
-        "feedback",
         "prd_versions",
         "prd_approvals",
         "alignment_events",
@@ -53,17 +50,17 @@ async def test_session_round_trip():
     session_factory = database.get_session_factory()
 
     async with session_factory() as session:
-        new_plan_id = uuid.uuid4().hex
-        plan = database.Plan(
-            plan_id=new_plan_id,
-            title="Test",
-            context="Context",
+        new_version_id = uuid.uuid4().hex
+        version = database.PRDVersion(
+            version_id=new_version_id,
+            plan_id="plan-1",
+            prd_markdown="# Test",
         )
-        session.add(plan)
+        session.add(version)
         await session.commit()
 
     async with session_factory() as session:
-        stmt = select(database.Plan).where(database.Plan.plan_id == new_plan_id)
+        stmt = select(database.PRDVersion).where(database.PRDVersion.version_id == new_version_id)
         result = await session.execute(stmt)
         fetched = result.scalar_one()
-        assert fetched.title == "Test"
+        assert fetched.prd_markdown == "# Test"

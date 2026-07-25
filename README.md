@@ -7,7 +7,7 @@ FastAPI service that turns product ideas into structured PRDs, action plans, and
 - **Idea → Plan:** `/plan` produces PRD markdown, ticket plan, and trace metadata in a single call.
 - **Operational guardrails:** Dry-run mode, rate limiting, approvals, and background task queue keep external systems safe.
 - **Living PRDs:** Git-style versioning, changelog generation, branching, blame, and approvals for product specs.
-- **Observability out of the box:** Structured logs, Prometheus metrics, trace browsing, and cost tracking hooks.
+- **Observability out of the box:** Structured logs, Prometheus metrics, and trace browsing.
 
 ## Quick Start
 
@@ -96,7 +96,6 @@ PRD versioning essentials:
 - **Metrics:** `/metrics` exposes Prometheus counters and histograms.
 - **Traces:** `/operators/traces` and `/operators/traces/{trace}` browse planner traces; async export via webhook or S3 when configured.
 - **Task queue:** `/tasks` and `/tasks/{id}` monitor background jobs.
-- **Cost tracking:** `agent_pm.cost_tracking` utilities log token and USD usage when responses include usage metadata.
 - **Alerts & playbooks:** Adaptive queue policies can requeue failures, post Slack digests, or trigger PagerDuty incidents through `task_queue_playbooks`.
 
 ## Configuration Reference
