@@ -1,8 +1,0 @@
-.git
-.venv
-.data
-data
-bazel-bin
-bazel-out
-bazel-testlogs
-node_modules
