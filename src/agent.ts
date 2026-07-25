@@ -1,4 +1,9 @@
-import { Agent, type AgentTool, type AgentToolResult } from "@earendil-works/pi-agent-core";
+import {
+	Agent,
+	type AgentTool,
+	type AgentToolResult,
+	type StreamFn,
+} from "@earendil-works/pi-agent-core";
 import {
 	type Api,
 	contentText,
@@ -7,7 +12,10 @@ import {
 	type MutableModels,
 	Type,
 } from "@earendil-works/pi-ai";
+import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
+import { googleProvider } from "@earendil-works/pi-ai/providers/google";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
+import type { Provider } from "./config.ts";
 import type { GitHubClient } from "./github.ts";
 import { buildSystemPrompt } from "./prompts.ts";
 
@@ -36,22 +44,39 @@ export interface FiledIssue {
 	dryRun: boolean;
 }
 
-export interface PrdRunResult {
-	prd: Prd;
-	issues: FiledIssue[];
+export interface FileIssuesResult {
+	filed: FiledIssue[];
+	failed: { title: string; error: string }[];
+}
+
+export interface HistoryEntry {
+	role: "user" | "assistant";
+	text: string;
 }
 
 export interface PrdAgentDeps {
 	models: MutableModels;
 	model: Model<Api>;
-	github: GitHubClient;
-	dryRun: boolean;
+	/** Abort the run after this many milliseconds. */
+	timeoutMs: number;
+	/** Test seam: defaults to models.streamSimple. */
+	streamFn?: StreamFn;
 }
 
-/** Shared model registry with the OpenAI provider (auth via OPENAI_API_KEY). */
-export function buildModels(): MutableModels {
+/** Shared model registry for one provider (auth via the provider's API key env var). */
+export function buildModels(provider: Provider): MutableModels {
 	const models = createModels();
-	models.setProvider(openaiProvider());
+	switch (provider) {
+		case "openai":
+			models.setProvider(openaiProvider());
+			break;
+		case "anthropic":
+			models.setProvider(anthropicProvider());
+			break;
+		case "google":
+			models.setProvider(googleProvider());
+			break;
+	}
 	return models;
 }
 
@@ -70,60 +95,29 @@ const prdSchema = Type.Object({
 	userStories: Type.Array(userStorySchema),
 });
 
+/** Prepend conversation history to the raw idea in a simple readable format. */
+export function formatPrompt(idea: string, history?: HistoryEntry[]): string {
+	if (!history || history.length === 0) return idea;
+	const lines = history.map((h) => `${h.role === "user" ? "User" : "Assistant"}: ${h.text}`);
+	return `Conversation so far:\n${lines.join("\n")}\n\nLatest request: ${idea}`;
+}
+
 /**
- * Run the PRD agent over a raw product idea. Creates a fresh Agent per call
- * (one active run per Agent instance); the `models` registry is shared.
+ * Run the PRD-drafting agent over a product idea. The LLM only drafts — its
+ * sole tool is the terminal submit_prd. Creates a fresh Agent per call (one
+ * active run per Agent instance); the `models` registry is shared.
  */
-export async function runPrdAgent(idea: string, deps: PrdAgentDeps): Promise<PrdRunResult> {
+export async function runPrdAgent(
+	idea: string,
+	deps: PrdAgentDeps,
+	history?: HistoryEntry[],
+): Promise<Prd> {
 	let capturedPrd: Prd | undefined;
-	const issues: FiledIssue[] = [];
-
-	const createIssueSchema = Type.Object({
-		title: Type.String(),
-		body: Type.String({ description: "Issue body in markdown" }),
-	});
-
-	const createIssueTool: AgentTool<typeof createIssueSchema> = {
-		name: "create_github_issue",
-		label: "Create GitHub Issue",
-		description:
-			"File a GitHub issue for one user story. Call once per user story, after drafting them.",
-		parameters: createIssueSchema,
-		execute: async (_toolCallId, params) => {
-			if (deps.dryRun) {
-				const issue: FiledIssue = { title: params.title, body: params.body, dryRun: true };
-				issues.push(issue);
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Dry run: issue "${params.title}" was NOT created. Payload recorded.`,
-						},
-					],
-					details: issue,
-				};
-			}
-			const created = await deps.github.createIssue(params.title, params.body);
-			const issue: FiledIssue = {
-				title: params.title,
-				body: params.body,
-				number: created.number,
-				url: created.url,
-				dryRun: false,
-			};
-			issues.push(issue);
-			return {
-				content: [{ type: "text", text: `Created issue #${created.number}: ${created.url}` }],
-				details: issue,
-			};
-		},
-	};
 
 	const submitPrdTool: AgentTool<typeof prdSchema, Prd> = {
 		name: "submit_prd",
 		label: "Submit PRD",
-		description:
-			"Submit the final structured PRD. Call exactly once, after filing issues for all user stories. Ends the run.",
+		description: "Submit the final structured PRD. Call exactly once. Ends the run.",
 		parameters: prdSchema,
 		execute: async (_toolCallId, params): Promise<AgentToolResult<Prd>> => {
 			capturedPrd = params;
@@ -137,15 +131,27 @@ export async function runPrdAgent(idea: string, deps: PrdAgentDeps): Promise<Prd
 
 	const agent = new Agent({
 		initialState: {
-			systemPrompt: buildSystemPrompt(deps.dryRun),
+			systemPrompt: buildSystemPrompt(),
 			model: deps.model,
-			tools: [createIssueTool, submitPrdTool],
+			tools: [submitPrdTool],
 		},
-		streamFn: deps.models.streamSimple.bind(deps.models),
+		streamFn: deps.streamFn ?? deps.models.streamSimple.bind(deps.models),
 	});
 
-	await agent.prompt(idea);
+	let timedOut = false;
+	const timer = setTimeout(() => {
+		timedOut = true;
+		agent.abort();
+	}, deps.timeoutMs);
+	try {
+		await agent.prompt(formatPrompt(idea, history));
+	} finally {
+		clearTimeout(timer);
+	}
 
+	if (timedOut) {
+		throw new Error(`Agent run timed out after ${deps.timeoutMs} ms`);
+	}
 	if (agent.state.errorMessage) {
 		throw new Error(`Agent run failed: ${agent.state.errorMessage}`);
 	}
@@ -157,5 +163,46 @@ export async function runPrdAgent(idea: string, deps: PrdAgentDeps): Promise<Prd
 		);
 	}
 
-	return { prd: capturedPrd, issues };
+	return capturedPrd;
+}
+
+/** Issue body for a user story: description plus acceptance criteria checklist. */
+export function storyBody(story: UserStory): string {
+	const criteria = story.acceptanceCriteria.map((c) => `- [ ] ${c}`).join("\n");
+	return `${story.description}\n\n## Acceptance criteria\n${criteria}`;
+}
+
+/**
+ * File one GitHub issue per user story. Deterministic — the LLM proposes,
+ * this code disposes. Per-issue failures are caught and reported, not thrown.
+ */
+export async function fileIssues(
+	prd: Prd,
+	github: GitHubClient,
+	dryRun: boolean,
+): Promise<FileIssuesResult> {
+	const result: FileIssuesResult = { filed: [], failed: [] };
+	for (const story of prd.userStories) {
+		const body = storyBody(story);
+		if (dryRun) {
+			result.filed.push({ title: story.title, body, dryRun: true });
+			continue;
+		}
+		try {
+			const created = await github.createIssue(story.title, body);
+			result.filed.push({
+				title: story.title,
+				body,
+				number: created.number,
+				url: created.url,
+				dryRun: false,
+			});
+		} catch (err) {
+			result.failed.push({
+				title: story.title,
+				error: err instanceof Error ? err.message : String(err),
+			});
+		}
+	}
+	return result;
 }

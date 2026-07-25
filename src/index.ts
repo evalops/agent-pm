@@ -5,19 +5,22 @@ import { createSlackApp } from "./slack.ts";
 
 const config = loadConfig();
 
-const models = buildModels();
-const model = models.getModel("openai", config.model);
+const models = buildModels(config.provider);
+const model = models.getModel(config.provider, config.model);
 if (!model) {
-	throw new Error(`Unknown model "openai/${config.model}" — check the MODEL env var.`);
+	throw new Error(`Unknown model "${config.provider}/${config.model}" — check the MODEL env var.`);
 }
 
 const github = makeGitHubClient(config.githubToken, config.githubRepo);
 
 const app = createSlackApp(config, {
-	runAgent: (idea) => runPrdAgent(idea, { models, model, github, dryRun: config.dryRun }),
+	runAgent: (idea, history) =>
+		runPrdAgent(idea, { models, model, timeoutMs: config.agentTimeoutMs }, history),
+	github,
+	dryRun: config.dryRun,
 });
 
 await app.start();
 console.log(
-	`Agent PM listening (Socket Mode). Model: openai/${config.model}, repo: ${config.githubRepo}, dry-run: ${config.dryRun}`,
+	`Agent PM listening (Socket Mode). Model: ${config.provider}/${config.model}, repo: ${config.githubRepo}, dry-run: ${config.dryRun}`,
 );
