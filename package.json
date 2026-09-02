@@ -16,7 +16,7 @@
 	"dependencies": {
 		"@earendil-works/pi-agent-core": "0.82.0",
 		"@earendil-works/pi-ai": "0.82.0",
-		"@slack/bolt": "4.7.3"
+		"@slack/bolt": "5.0.0"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.11",
